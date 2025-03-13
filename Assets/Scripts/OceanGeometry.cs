@@ -33,7 +33,6 @@ public class OceanGeometry : MonoBehaviour
 
     Material[] materials;
 
-<<<<<<< HEAD
     float _updateThreshold = 1.0f;
     Vector3 _lastUpdatePos;
     [Header("Geometry Colors")]
@@ -42,11 +41,9 @@ public class OceanGeometry : MonoBehaviour
     public Color trimColor = Color.blue;
     public Color skirtColor = Color.yellow;
 
-
-=======
->>>>>>> parent of 7877c91 (Opti. update pos)
     private void Start()
     {
+        Application.targetFrameRate = -1;
         if (viewer == null)
             viewer = Camera.main.transform;
 
@@ -96,7 +93,13 @@ public class OceanGeometry : MonoBehaviour
             previousSkirtSize = skirtSize;
         }
 
-        UpdatePositions();
+        if (Vector3.Distance(viewer.position, _lastUpdatePos) > _updateThreshold)
+        {
+            UpdatePositions();
+            _lastUpdatePos = viewer.position;
+        }
+
+        //UpdatePositions();
         UpdateMaterials();
     }
 
