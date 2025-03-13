@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!28 &2800000
+Texture2D:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: GaussianNoiseTexture8x8
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_ForcedFallbackFormat: 4
+  m_DownscaleFallback: 0
+  serializedVersion: 2
+  m_Width: 8
+  m_Height: 8
+  m_CompleteImageSize: 512
+  m_TextureFormat: 19
+  m_MipCount: 1
+  m_IsReadable: 1
+  m_IgnoreMasterTextureLimit: 0
+  m_IsPreProcessed: 0
+  m_StreamingMipmaps: 0
+  m_StreamingMipmapsPriority: 0
+  m_AlphaIsTransparency: 0
+  m_ImageCount: 1
+  m_TextureDimension: 2
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 0
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 0
+    m_WrapV: 0
+    m_WrapW: 0
+  m_LightmapFormat: 0
+  m_ColorSpace: 0
+  image data: 512
+  _typelessdata: efd20cbfc944003eee12c43e86e18b3f95fcf8bf95debc3ec8a45e3cb8a1013f13e4883eae2c82be9f6f7ebeb206a6be0026e83e1e8ff33ec2d33c3f173bf5be72a3103e07c81bbf90d7cbbf4f70f33f4019b5bf8ae880bf1a8bf03da40a973e44361abf632a1bbfc6a69c3f8e0b06bfd62309c0f83b6dbf5ccf2d3f0938fb3d73bb2a3f0a249ebfb1a02b3fe338c03dc87bd63e8b8a0fbfbd4e04c071de413ff270813cf1b57b3ffa9246be72e10b3fca5f563f4e709bbf0e49853e52d7bb3e6a75babe211bd73f20b381bf3ea55a3f079bc13e342665bed21629bff2d690bff5d841bf558d923fa03faf3f2b8d953f841969be85c54dbf49a649bf3076c9be18e68d3f5011293ff15dc83ec587ff3f8d29ecbe5510cbbf61a03bbfebf4a03e851b8b3f6f680e3f24efca3fffb4dcbe1b98f13f549bbd3f5cccad3f7a8c433fd252843fa65976bef13ae13e8bd7963f6b0210bf89c6de3e7d67503ddfd69abca7cb45bf47709d3d3c58093f822f223f0326acbeccf7c6bc292c913e1b9903c0efb61e3f997b79bf084ce2bfff1c0bbe01eeb23f10e6b6bf0c0d86bf00f8123f561a0cc0d63775bd22db81be1fba71bff2371fbf5f50bebf940ae43f62a0f73f6d528bbe13742ebc9e68154056205bbe11920e3ea706923fe2faa83e121971bfb9bddd3fd65a803feb19453fecb3163f190faebfc36e22bfa8af66bf223b6cbf
+  m_StreamData:
+    offset: 0
+    size: 0
+    path: 

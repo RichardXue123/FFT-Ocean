@@ -33,8 +33,12 @@ public class OceanGeometry : MonoBehaviour
 
     Material[] materials;
 
+    float _updateThreshold = 1.0f;
+    Vector3 _lastUpdatePos;
+
     private void Start()
     {
+        Application.targetFrameRate = -1;
         if (viewer == null)
             viewer = Camera.main.transform;
 
@@ -84,7 +88,13 @@ public class OceanGeometry : MonoBehaviour
             previousSkirtSize = skirtSize;
         }
 
-        UpdatePositions();
+        if (Vector3.Distance(viewer.position, _lastUpdatePos) > _updateThreshold)
+        {
+            UpdatePositions();
+            _lastUpdatePos = viewer.position;
+        }
+
+        //UpdatePositions();
         UpdateMaterials();
     }
 
