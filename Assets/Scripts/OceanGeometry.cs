@@ -35,6 +35,12 @@ public class OceanGeometry : MonoBehaviour
 
     float _updateThreshold = 1.0f;
     Vector3 _lastUpdatePos;
+    [Header("Geometry Colors")]
+    public Color centerColor = Color.red;
+    public Color ringColor = Color.green;
+    public Color trimColor = Color.blue;
+    public Color skirtColor = Color.yellow;
+
 
     private void Start()
     {
@@ -100,33 +106,33 @@ public class OceanGeometry : MonoBehaviour
 
     void UpdateMaterials()
     {
-        if (updateMaterialProperties && !showMaterialLods)
+        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
+
+        // 中心区域 - 始终使用指定颜色
+        center.MeshRenderer.GetPropertyBlock(propBlock);
+        propBlock.SetColor("_Color", centerColor);
+        center.MeshRenderer.SetPropertyBlock(propBlock);
+
+        // 环形区域 - 所有层级使用相同颜色
+        foreach (Element ring in rings)
         {
-            for (int i = 0; i < 3; i++)
-            {
-                materials[i].CopyPropertiesFromMaterial(oceanMaterial);
-            }
-            materials[0].EnableKeyword("CLOSE");
-            materials[1].EnableKeyword("MID");
-            materials[1].DisableKeyword("CLOSE");
-            materials[2].DisableKeyword("MID");
-            materials[2].DisableKeyword("CLOSE");
-        }
-        if (showMaterialLods)
-        {
-            materials[0].SetColor("_Color", Color.red * 0.6f);
-            materials[1].SetColor("_Color", Color.green * 0.6f);
-            materials[2].SetColor("_Color", Color.blue * 0.6f);
+            ring.MeshRenderer.GetPropertyBlock(propBlock);
+            propBlock.SetColor("_Color", ringColor);
+            ring.MeshRenderer.SetPropertyBlock(propBlock);
         }
 
-        int activeLevels = ActiveLodlevels();
-        center.MeshRenderer.material = GetMaterial(clipLevels - activeLevels - 1);
-
-        for (int i = 0; i < rings.Count; i++)
+        // 过渡区域 - 所有层级使用相同颜色
+        foreach (Element trim in trims)
         {
-            rings[i].MeshRenderer.material = GetMaterial(clipLevels - activeLevels + i);
-            trims[i].MeshRenderer.material = GetMaterial(clipLevels - activeLevels + i);
+            trim.MeshRenderer.GetPropertyBlock(propBlock);
+            propBlock.SetColor("_Color", trimColor);
+            trim.MeshRenderer.SetPropertyBlock(propBlock);
         }
+
+        // 裙边区域 - 固定颜色
+        skirt.MeshRenderer.GetPropertyBlock(propBlock);
+        propBlock.SetColor("_Color", skirtColor);
+        skirt.MeshRenderer.SetPropertyBlock(propBlock);
     }
 
     Material GetMaterial(int lodLevel)
@@ -221,43 +227,60 @@ public class OceanGeometry : MonoBehaviour
         return coords;
     }
 
+
     void InstantiateMeshes()
     {
-        foreach (var child in gameObject.GetComponentsInChildren<Transform>())
-        {
-            if (child != transform)
-                Destroy(child.gameObject);
-        }
-        rings.Clear();
-        trims.Clear();
-
         int k = GridSize();
-        center = InstantiateElement("Center", CreatePlaneMesh(2 * k, 2 * k, 1, Seams.All), materials[materials.Length - 1]);
-        Mesh ring = CreateRingMesh(k, 1);
-        Mesh trim = CreateTrimMesh(k, 1);
+        // 实例化中心区域
+        Mesh centerMesh = CreatePlaneMesh(2 * k, 2 * k, 1, Seams.All);
+        center = InstantiateElement("Center", centerMesh, Element.GeoType.Center);
+
+        // 实例化环形区域
         for (int i = 0; i < clipLevels; i++)
         {
-            rings.Add(InstantiateElement("Ring " + i, ring, materials[materials.Length - 1]));
-            trims.Add(InstantiateElement("Trim " + i, trim, materials[materials.Length - 1]));
+            Mesh ringMesh = CreateRingMesh(k,1);
+            rings.Add(InstantiateElement($"Ring_{i}", ringMesh, Element.GeoType.Ring));
+
+            Mesh trimMesh = CreateTrimMesh(k,1);
+            trims.Add(InstantiateElement($"Trim_{i}", trimMesh, Element.GeoType.Trim));
         }
-        skirt = InstantiateElement("Skirt", CreateSkirtMesh(k, skirtSize), materials[materials.Length - 1]);
+
+        // 实例化裙边
+        Mesh skirtMesh = CreateSkirtMesh(k, skirtSize);
+        skirt = InstantiateElement("Skirt", skirtMesh, Element.GeoType.Skirt);
     }
 
-    Element InstantiateElement(string name, Mesh mesh, Material mat)
+    // 修正后的实例化方法
+    Element InstantiateElement(string name, Mesh mesh, Element.GeoType type)
     {
-        GameObject go = new GameObject();
-        go.name = name;
-        go.transform.SetParent(transform);
-        go.transform.localPosition = Vector3.zero;
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(this.transform);
+
+        // 正确添加组件的方式
         MeshFilter meshFilter = go.AddComponent<MeshFilter>();
-        meshFilter.mesh = mesh;
+        meshFilter.mesh = mesh;  // 设置mesh在方法内部
+
         MeshRenderer meshRenderer = go.AddComponent<MeshRenderer>();
-        meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        meshRenderer.receiveShadows = true;
-        meshRenderer.motionVectorGenerationMode = MotionVectorGenerationMode.Camera;
+
+        // 根据类型设置材质颜色
+        Color color = GetColorByType(type);
+        Material mat = new Material(oceanMaterial);
+        mat.color = color;
         meshRenderer.material = mat;
-        meshRenderer.allowOcclusionWhenDynamic = false;
-        return new Element(go.transform, meshRenderer);
+
+        return new Element(go.transform, meshRenderer, type);
+    }
+
+    Color GetColorByType(Element.GeoType type)
+    {
+        switch (type)
+        {
+            case Element.GeoType.Center: return centerColor;
+            case Element.GeoType.Ring: return ringColor;
+            case Element.GeoType.Trim: return trimColor;
+            case Element.GeoType.Skirt: return skirtColor;
+            default: return Color.white;
+        }
     }
 
     Mesh CreateSkirtMesh(int k, float outerBorderScale)
@@ -408,15 +431,33 @@ public class OceanGeometry : MonoBehaviour
         return mesh;
     }
 
+    // 修改材质创建逻辑
+    private Material CreateColoredMaterial(Color color, int lodLevel)
+    {
+        var mat = new Material(oceanMaterial);
+
+        // 保持原有LOD关键字
+        if (lodLevel <= 0) mat.EnableKeyword("CLOSE");
+        if (lodLevel <= 1) mat.EnableKeyword("MID");
+
+        // 通过材质属性设置颜色
+        mat.SetColor("_Color", color);
+        mat.SetColor("_SSSColor", color * 0.8f);
+        return mat;
+    }
+
     class Element
     {
+        public enum GeoType { Center, Ring, Trim, Skirt }
+        public GeoType geoType;
         public Transform Transform;
         public MeshRenderer MeshRenderer;
 
-        public Element(Transform transform, MeshRenderer meshRenderer)
+        public Element(Transform t, MeshRenderer mr, GeoType type)
         {
-            Transform = transform;
-            MeshRenderer = meshRenderer;
+            Transform = t;
+            MeshRenderer = mr;
+            geoType = type;
         }
     }
 
