@@ -1,4 +1,6 @@
-﻿Shader "Custom/WaveParticle"
+﻿// Upgrade NOTE: upgraded instancing buffer 'Props' to new syntax.
+
+Shader "Custom/WaveParticle"
 {
     Properties
     {
@@ -13,6 +15,8 @@
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile_instancing
+            #pragma instancing_options assumeuniformscaling
             #include "UnityCG.cginc"
 
             struct appdata
@@ -29,20 +33,24 @@
 
             fixed4 _Color;
 
-            v2f vert(appdata v)
-            {
-                v2f o;
-                UNITY_SETUP_INSTANCE_ID(v);
-                o.vertex = UnityObjectToClipPos(v.vertex);
-                o.color = _Color;
-                return o;
-            }
+            UNITY_INSTANCING_BUFFER_START(Props)
+                // 你可以在这里定义每实例变量，比如 _Height 之类
+                UNITY_INSTANCING_BUFFER_END(Props)
 
-            fixed4 frag(v2f i) : SV_Target
-            {
-                return i.color;
+                v2f vert(appdata v)
+                {
+                    v2f o;
+                    UNITY_SETUP_INSTANCE_ID(v);
+                    o.vertex = UnityObjectToClipPos(v.vertex);
+                    o.color = _Color;
+                    return o;
+                }
+
+                fixed4 frag(v2f i) : SV_Target
+                {
+                    return i.color;
+                }
+                ENDCG
             }
-            ENDCG
-        }
     }
 }

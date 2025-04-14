@@ -1,0 +1,48 @@
+﻿#pragma kernel CSMain
+
+// 使用正确的纹理格式声明
+RWTexture2D<float> Result : register(u0);
+StructuredBuffer<float4> Particles : register(t0);
+
+int2 TextureSize;
+int ParticleCount;
+float time;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // 边界检查增强
+    if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
+        return;
+
+    // 添加显式类型转换
+    float2 uv = float2(id.x, id.y) / float2(TextureSize);
+    float2 worldPos = (uv - 0.5f) * 10.0f;
+
+    float height = 0.0;
+
+    // 添加循环保护
+    int safeCount = min(ParticleCount, 1024); // 防止溢出
+    for (int i = 0; i < safeCount; i++)
+    {
+        float2 particlePos = Particles[i].xy;
+        float particleHeight = Particles[i].z;
+        float radius = Particles[i].w;
+
+        // 优化距离计算
+        float2 delta = worldPos - particlePos;
+        float distSq = dot(delta, delta);
+        float radiusSq = radius * radius;
+
+        if (distSq < radiusSq)
+        {
+            float dist = sqrt(distSq);
+            float weight = 1.0 - saturate(dist / radius);
+            height += particleHeight * weight;
+        }
+    }
+    //test
+    //height = sin(time);
+    //test
+    Result[id.xy] = height;
+}
