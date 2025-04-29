@@ -175,7 +175,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   size: 256
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  alwaysRecalculateInitials: 0
+  alwaysRecalculateInitials: 1
   lengthScale0: 250
   lengthScale1: 17
   lengthScale2: 5

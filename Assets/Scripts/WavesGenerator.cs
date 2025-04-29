@@ -15,7 +15,7 @@ public class WavesGenerator : MonoBehaviour
     [SerializeField]
     WavesSettings wavesSettings;
     [SerializeField]
-    bool alwaysRecalculateInitials = false;
+    bool alwaysRecalculateInitials = true;
     [SerializeField]
     float lengthScale0 = 250;
     [SerializeField]
@@ -53,8 +53,9 @@ public class WavesGenerator : MonoBehaviour
 
     void InitialiseCascades()
     {
-        float boundary1 = 2 * Mathf.PI / lengthScale1 * 6f;
-        float boundary2 = 2 * Mathf.PI / lengthScale2 * 6f;
+        float time = Time.time;
+        float boundary1 = 2 * Mathf.PI / lengthScale1 * 6f + time/1000;
+        float boundary2 = 2 * Mathf.PI / lengthScale2 * 6f + time / 1000;
         cascade0.CalculateInitials(wavesSettings, lengthScale0, 0.0001f, boundary1);
         cascade1.CalculateInitials(wavesSettings, lengthScale1, boundary1, boundary2);
         cascade2.CalculateInitials(wavesSettings, lengthScale2, boundary2, 9999);
