@@ -418,7 +418,6 @@ GameObject:
   m_Component:
   - component: {fileID: 414186596}
   - component: {fileID: 414186595}
-  - component: {fileID: 414186597}
   m_Layer: 0
   m_Name: Ocean
   m_TagString: Untagged
@@ -443,6 +442,7 @@ MonoBehaviour:
   m_baseHeight: 0.3
   m_speed: 0.3
   m_mainDirection: {x: 1, y: 0}
+  radiusScale: 0.25
   ballMesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
   ballMaterial: {fileID: 2100000, guid: d0a18ae52220035499979ad860804aee, type: 2}
   instanceMaterial: {fileID: 2100000, guid: 24ac973be2d50e642bbff8b87adfe508, type: 2}
@@ -450,6 +450,9 @@ MonoBehaviour:
     type: 3}
   heightMap: {fileID: 0}
   textureSize: {x: 256, y: 256}
+  resolution: 256
+  planeSize: 10
+  oceanMaterial: {fileID: 2100000, guid: 24ac973be2d50e642bbff8b87adfe508, type: 2}
   heightMapDisplay: {fileID: 1137232456}
 --- !u!4 &414186596
 Transform:
@@ -466,23 +469,6 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &414186597
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 414186594}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 77aa70332f138084d9bfa2617bbdfd9e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  subdivisionsX: 256
-  subdivisionsZ: 256
-  sizeX: 10
-  sizeZ: 10
-  planeMaterial: {fileID: 0}
 --- !u!1 &819559491
 GameObject:
   m_ObjectHideFlags: 0
@@ -500,7 +486,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &819559492
 Transform:
   m_ObjectHideFlags: 0
@@ -771,8 +757,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -529.3, y: -288}
-  m_SizeDelta: {x: 10, y: 10}
+  m_AnchoredPosition: {x: -437.2, y: -215.5}
+  m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1137232456
 MonoBehaviour:

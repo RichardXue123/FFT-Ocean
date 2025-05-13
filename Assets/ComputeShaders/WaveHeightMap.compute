@@ -4,9 +4,15 @@
 RWTexture2D<float> Result : register(u0);
 StructuredBuffer<float4> Particles : register(t0);
 
-int2 TextureSize;
+
 int ParticleCount;
 float time;
+//纹理分辨率大小
+int2 TextureSize;
+// 物理上海洋的大小（米）
+float  OceanSize;
+// Unity 平面在世界里全长（单位同 Unity 世界坐标，比如 10）
+float  PlaneSize;
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
@@ -17,35 +23,29 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 
     // 添加显式类型转换
     float2 uv = float2(id.x, id.y) / float2(TextureSize);
-    float2 worldPos = (uv - 0.5f) * 10.0f;
+    float2 worldPos = (uv - 0.5f) * OceanSize;
 
-    float height = 0.0;
+    float height = 0.0f;
 
     // 添加循环保护
 
-
-    int safeCount = min(ParticleCount, 1024); // 防止溢出
-    for (int i = 0; i < safeCount; i++)
+    //int safeCount = min(ParticleCount, 1024); // 防止溢出
+    for (int i = 0; i < ParticleCount; i++)
     {
-        float2 particlePos = Particles[i].xy;
+        float2 particleWorldPos = Particles[i].xy / PlaneSize * OceanSize;
         float particleHeight = Particles[i].z;
         float radius = Particles[i].w;
 
         // 距离计算
-        float2 delta = worldPos - particlePos;
+        float2 delta = worldPos - particleWorldPos;
         float distSq = dot(delta, delta);
         float radiusSq = radius * radius;
         float dist = sqrt(distSq); // 计算实际距离
         //在粒子影响范围内
         if (dist < radius)
         {
-            float t = saturate(dist / radius); // 先把 t 限制到 [0,1]
-            float weight = pow(1.0f - t * t, 3.0f);
-            //float dist = sqrt(distSq);
-            //float weight = 1.0 - saturate(dist / radius);
-            //使得weight更平滑
-            //float weight = exp(-distSq / (radius * radius));
-            //float weight = 1.0 - saturate((dist / radius) * (dist / radius));
+            float t = saturate(dist / radius); // t 限制到 [0,1]
+            float weight = pow(1.0f - t * t, 2.0f);
             height += particleHeight * weight;
         }
     }

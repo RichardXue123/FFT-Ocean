@@ -71,22 +71,24 @@ namespace Assets.Scripts
         // 更新波粒子的位置
         public void UpdatePosition(float deltaTime)
         {
-            position += deltaTime * speed * direction; // 更新位置
-            if (position.x > 5f)
+            position += deltaTime * speed * direction * 10f / 100f; // 更新位置
+            float worldRadius = radius * 10f / 100f;
+
+            if (position.x > 5f + worldRadius)
             { 
-                position.x -= 10f; 
+                position.x -= (10f + 2 * worldRadius); 
             }
-            else if (position.x < -5f)
+            else if (position.x < -(5f + worldRadius))
             {
-                position.x += 10f;
+                position.x += (10f + 2 * worldRadius);
             }
-            if (position.y > 5f)
+            if (position.y > 5f + worldRadius)
             {
-                position.y -= 10f;
+                position.y -= (10f + 2 * worldRadius);
             }
-            else if (position.y < -5f)
+            else if (position.y < -(5f + worldRadius))
             {
-                position.y += 10f;
+                position.y += (10f + 2 * worldRadius);
             }
         }
 

@@ -16,8 +16,8 @@
         _FoamBiasLOD0("Foam Bias LOD0", Range(0,7)) = 1
         _FoamBiasLOD1("Foam Bias LOD1", Range(0,7)) = 1
         _FoamBiasLOD2("Foam Bias LOD2", Range(0,7)) = 1
-        _FoamScale("Foam Scale", Range(0,20)) = 1
-        _ContactFoam("Contact Foam", Range(0,1)) = 1
+        _FoamScale("Foam Scale", Range(0,20)) = 1 // 原本是1 注释掉泡沫效果
+        _ContactFoam("Contact Foam", Range(0,1)) = 1 // 原本是1 注释掉泡沫效果
 
 
         [Header(Cascade 0)]
@@ -164,6 +164,8 @@
             float foam = tex2D(_FoamTexture, IN.worldUV * 0.5 + _Time.r).r;
             jacobian += _ContactFoam * saturate(max(0, foam - depthDifference) * 5) * 0.9;
 
+            //此处置为0即可注释泡沫效果
+            jacobian = 0;
             o.Albedo = lerp(0, _FoamColor, jacobian);
             float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));
             o.Smoothness = lerp(distanceGloss, 0, jacobian);

@@ -38,8 +38,8 @@
                 v2f vert(appdata v)
                 {
                     v2f o;
-                    // 使用 tex2Dlod 而不是 tex2D
                     float height = tex2Dlod(_HeightMap, float4(v.uv, 0, 0)).r;
+                    //float height = tex2D(_HeightMap, v.uv).r;
                     float4 modifiedVertex = v.vertex;
                     modifiedVertex.y += height;
                     o.pos = UnityObjectToClipPos(modifiedVertex);
