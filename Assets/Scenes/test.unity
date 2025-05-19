@@ -442,7 +442,10 @@ MonoBehaviour:
   m_baseHeight: 0.3
   m_speed: 0.3
   m_mainDirection: {x: 1, y: 0}
-  radiusScale: 0.25
+  windSpeed: 10
+  waterDepth: 1000
+  maxRadius: 1000
+  particleCnt: 10000
   ballMesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
   ballMaterial: {fileID: 2100000, guid: d0a18ae52220035499979ad860804aee, type: 2}
   instanceMaterial: {fileID: 2100000, guid: 24ac973be2d50e642bbff8b87adfe508, type: 2}
@@ -452,6 +455,7 @@ MonoBehaviour:
   textureSize: {x: 256, y: 256}
   resolution: 256
   planeSize: 10
+  oceanSize: 1000
   oceanMaterial: {fileID: 2100000, guid: 24ac973be2d50e642bbff8b87adfe508, type: 2}
   heightMapDisplay: {fileID: 1137232456}
 --- !u!4 &414186596

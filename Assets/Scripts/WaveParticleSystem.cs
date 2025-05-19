@@ -22,7 +22,11 @@ namespace Assets.Scripts
         [SerializeField] private float m_speed = 0.3f;
         [SerializeField] private Vector2 m_mainDirection = Vector2.right;
         //[Range(0, 1)] public float radiusScale = 0.25f;
-        [SerializeField] float waterDepth = 10f;
+        [Range(0, 20)] public float windSpeed = 5f;
+        [SerializeField] float waterDepth = 500f;
+        [SerializeField] public float maxRadius= 1000f;
+        [SerializeField] public int particleCnt = 10000;
+
 
         [Header("Rendering")]
         public Mesh ballMesh;
@@ -51,7 +55,7 @@ namespace Assets.Scripts
         {
             //InitializeSimpleWave();
             particles.Clear();
-            particles = GenerateParticles(count: 10000, windSpeed: 5.0f);
+            particles = GenerateParticles(particleCnt, windSpeed);
             //particles = GenerateParticlesTest(count: 1, windSpeed: 10.0f);
             Debug.Log($"Generated {particles.Count} basic wave particles");
             // 初始化 ComputeBuffer
@@ -104,7 +108,7 @@ namespace Assets.Scripts
             // 更新粒子位置和速度
             for (int i = 0; i < particles.Count; i++)
             {
-                particles[i].UpdatePosition(deltaTime);
+                particles[i].UpdatePosition(deltaTime,planeSize,oceanSize);
                 particles[i].UpdateParticle(time);
             }
             UpdateParticleBuffer();
@@ -155,7 +159,7 @@ namespace Assets.Scripts
             for (int i = 0; i < count; i++)
             {
                 float ω = omegaMin + (i + 0.5f) * dOmega;
-                float S = JONSWAP(ω, omegaP, alpha, gamma);
+                float S = JONSWAP(ω, omegaP, alpha, gamma, g, waterDepth);
                 float A = Mathf.Sqrt(2 * S * dOmega);
                 //Debug.Log("高度：" + A);
                 // 构造粒子
@@ -166,7 +170,8 @@ namespace Assets.Scripts
                 p.phase = UnityEngine.Random.value * Mathf.PI * 2f;
                 p.angularFrequency = ω;
                 p.waveNumber = ω * ω / g;
-                p.radius = 2 * Mathf.PI / p.waveNumber; 
+                //p.radius = 2 * Mathf.PI / p.waveNumber;
+                p.radius = Math.Min(2 * Mathf.PI / p.waveNumber,maxRadius);
                 p.speed = Mathf.Sqrt(g / p.waveNumber);
                 list.Add(p);
 
@@ -174,14 +179,50 @@ namespace Assets.Scripts
             return list;
         }
 
-        static float JONSWAP(float omega, float omegaP, float alpha, float gamma)
+        /// <summary>
+        /// 带深度修正的 JONSWAP 频谱
+        /// omega      — 当前频率
+        /// omegaP     — 峰频
+        /// alpha, γ   — JONSWAP 参数
+        /// g          — 重力加速度
+        /// depth      — 水体深度
+        /// </summary>
+        static float JONSWAP(float omega, float omegaP, float alpha, float gamma, float g, float depth)
         {
+            // 1) 先算一个 r 项
             float sigma = omega <= omegaP ? 0.07f : 0.09f;
-            float r = Mathf.Exp(-((omega - omegaP) * (omega - omegaP)) / (2 * sigma * sigma * omegaP * omegaP));
-            return alpha * 9.81f * 9.81f * Mathf.Pow(omega, -5)
-                 * Mathf.Exp(-1.25f * Mathf.Pow(omegaP / omega, 4))
-                 * Mathf.Pow(gamma, r);
+            float r = Mathf.Exp(-Mathf.Pow(omega - omegaP, 2) /
+                                (2 * sigma * sigma * omegaP * omegaP));
+
+            // 2) 基本的深水谱部分
+            float baseSpectrum =
+                alpha * g * g
+                * Mathf.Pow(omega, -5)
+                * Mathf.Exp(-1.25f * Mathf.Pow(omegaP / omega, 4))
+                * Mathf.Pow(gamma, r);
+
+            // 3) 加上 TMA 修正
+            float tma = TMACorrection(omega, g, depth);
+
+            return baseSpectrum * tma;
         }
+
+        /// <summary>
+        /// TMA 修正项：考虑有限深度对频谱的修正
+        /// </summary>
+        static float TMACorrection(float omega, float g, float depth)
+        {
+            // ωh = omega * sqrt(depth / g)
+            float omegaH = omega * Mathf.Sqrt(depth / g);
+            if (omegaH <= 1.0f)
+                return 0.5f * omegaH * omegaH;
+            else if (omegaH < 2.0f)
+                return 1.0f - 0.5f * (2.0f - omegaH) * (2.0f - omegaH);
+            else
+                return 1.0f;
+        }
+
+
         List<WaveParticle> GenerateParticlesTest(int count, float windSpeed)
         {
             float g = 9.81f;
@@ -197,14 +238,14 @@ namespace Assets.Scripts
             for (int i = 0; i < count; i++)
             {
                 float ω = omegaMin + (i + 0.5f) * dOmega;
-                float S = JONSWAP(ω, omegaP, alpha, gamma);
+                float S = JONSWAP(ω, omegaP, alpha, gamma, g, waterDepth);
                 float A = Mathf.Sqrt(2 * S * dOmega);
                 Debug.Log("高度：" + A);
                 // 构造粒子
                 var p = new WaveParticle();
                 p.position = UnityEngine.Random.insideUnitCircle * 5f;
                 p.direction = UnityEngine.Random.insideUnitCircle.normalized;
-                p.baseHeight = A ;
+                p.baseHeight = A;
                 p.phase = UnityEngine.Random.value * Mathf.PI * 2f;
                 p.angularFrequency = ω;
                 p.waveNumber = ω * ω / g;

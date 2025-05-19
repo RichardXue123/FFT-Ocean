@@ -69,26 +69,25 @@ namespace Assets.Scripts
         }
 
         // 更新波粒子的位置
-        public void UpdatePosition(float deltaTime)
+        public void UpdatePosition(float deltaTime, float planeSize, float oceanSize)
         {
-            position += deltaTime * speed * direction * 10f / 100f; // 更新位置
-            float worldRadius = radius * 10f / 100f;
-
-            if (position.x > 5f + worldRadius)
+            position += deltaTime * speed * direction * planeSize / oceanSize; // 更新位置
+            float worldRadius = radius * planeSize / oceanSize;
+            if (position.x > planeSize / 2 + worldRadius)
             { 
-                position.x -= (10f + 2 * worldRadius); 
+                position.x -= (planeSize + 2 * worldRadius); 
             }
-            else if (position.x < -(5f + worldRadius))
+            else if (position.x < -(planeSize / 2 + worldRadius))
             {
-                position.x += (10f + 2 * worldRadius);
+                position.x += (planeSize + 2 * worldRadius);
             }
-            if (position.y > 5f + worldRadius)
+            if (position.y > planeSize / 2 + worldRadius)
             {
-                position.y -= (10f + 2 * worldRadius);
+                position.y -= (planeSize + 2 * worldRadius);
             }
-            else if (position.y < -(5f + worldRadius))
+            else if (position.y < -(planeSize / 2 + worldRadius))
             {
-                position.y += (10f + 2 * worldRadius);
+                position.y += (planeSize + 2 * worldRadius);
             }
         }
 
