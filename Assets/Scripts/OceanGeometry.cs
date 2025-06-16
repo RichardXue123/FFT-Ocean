@@ -46,14 +46,14 @@ public class OceanGeometry : MonoBehaviour
         oceanMaterial.SetTexture("_Derivatives_c1", wavesGenerator.cascade1.Derivatives);
         oceanMaterial.SetTexture("_Turbulence_c1", wavesGenerator.cascade1.Turbulence);
 
-        oceanMaterial.SetTexture("_Displacement_c2", wavesGenerator.cascade2.Displacement);
-        oceanMaterial.SetTexture("_Derivatives_c2", wavesGenerator.cascade2.Derivatives);
-        oceanMaterial.SetTexture("_Turbulence_c2", wavesGenerator.cascade2.Turbulence);
+        //oceanMaterial.SetTexture("_Displacement_c2", wavesGenerator.cascade2.Displacement);
+        //oceanMaterial.SetTexture("_Derivatives_c2", wavesGenerator.cascade2.Derivatives);
+        //oceanMaterial.SetTexture("_Turbulence_c2", wavesGenerator.cascade2.Turbulence);
 
 
         materials = new Material[3];
         materials[0] = new Material(oceanMaterial);
-        materials[0].EnableKeyword("CLOSE");
+        materials[0].EnableKeyword("ONLY_CLOSE");
 
         materials[1] = new Material(oceanMaterial);
         materials[1].EnableKeyword("MID");

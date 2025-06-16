@@ -74,7 +74,7 @@ public class WavesGenerator : MonoBehaviour
 
         cascade0.CalculateWavesAtTime(Time.time);
         cascade1.CalculateWavesAtTime(Time.time);
-        cascade2.CalculateWavesAtTime(Time.time);
+        //cascade2.CalculateWavesAtTime(Time.time);
 
         RequestReadbacks();
     }

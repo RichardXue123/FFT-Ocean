@@ -96,6 +96,7 @@ public static class MeshUtils
     /// </summary>
     public static Element InstantiateElement(string name, Mesh mesh, Material material, Transform parent = null)
     {
+        Debug.Log("Attempting to instantiate plane...");
         var go = new GameObject(name);
         if (parent != null) go.transform.SetParent(parent, false);
 

@@ -38,15 +38,21 @@ namespace Assets.Scripts
             angularFrequency = 0;
         }
 
-        public WaveParticle GetNegative()
+        public WaveParticle GetNegative(float planSize,  float oceanSize)
         {
+            // 归一化方向向量
+            Vector2 dirNorm = this.direction.normalized;
+            // 负粒子位置：沿 direction 负方向偏移一个 radius
+            Vector2 negPos = this.position - dirNorm * this.radius * planSize / oceanSize;
+
             WaveParticle ret = new WaveParticle
             {
-                //将p的副属性赋值给当前对象
-                position = this.position + new Vector2(0, 0.5f), // 偏移位置;
+                position = negPos,
                 direction = this.direction,
+                // 高度取反
                 height = -this.height,
-                baseHeight = this.baseHeight,
+                baseHeight = -this.baseHeight,
+                // 保留相同的振幅、速度、波数、半径、相位和角频率
                 speed = this.speed,
                 radius = this.radius,
                 waveNumber = this.waveNumber,
@@ -68,9 +74,10 @@ namespace Assets.Scripts
             height = baseHeight * Mathf.Sin(curPhase);
         }
 
-        // 更新波粒子的位置
-        public void UpdatePosition(float deltaTime, float planeSize, float oceanSize)
+        // 更新波粒子
+        public void Update(float deltaTime, float planeSize, float oceanSize)
         {
+            height = baseHeight;
             position += deltaTime * speed * direction * planeSize / oceanSize; // 更新位置
             float worldRadius = radius * planeSize / oceanSize;
             if (position.x > planeSize / 2 + worldRadius)
