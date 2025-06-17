@@ -683,16 +683,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   frameCnt: 0
   windSpeed: {x: 5, y: 0}
-  swellSpeed: {x: 20, y: 0}
+  swellSpeed: {x: 0, y: 10}
   waterDepth: 100
   maxRadius: 20
   layerCnt: 1
   sampleStep: 10
   gravity: 9.81
-  Tp: 3.8
+  Tp: 10
   Hs: 3
-  oceanSize: 10
-  fetchSize: 1000000
+  oceanSize: 100
+  fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
     type: 3}
   heightMap: {fileID: 0}

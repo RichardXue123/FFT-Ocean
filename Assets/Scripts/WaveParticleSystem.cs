@@ -184,6 +184,8 @@ namespace Assets.Scripts
             float kp = ωp * ωp / gravity;
             float kMin_sample = 0.5f * kp;
             float kMax_sample = 2.5f * kp;
+            // kMin kMax感觉不太对
+            Debug.Log($" kMim: {kMin}, kMax: {kMax},kp: {kp}, kMin_sample: {kMin_sample}, kMax_sample: {kMax_sample}");
 
             for (int s = 0; s < sampleStep; s++) {
                 // 采样角度方向 θ
@@ -191,7 +193,7 @@ namespace Assets.Scripts
                 Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                 // k 长度采样
-                float k = UnityEngine.Random.Range(kMin, kMax);
+                float k = UnityEngine.Random.Range(kMin_sample, kMax_sample);
 
                 //wind sea 风浪计算
                 Debug.Log($"k: {k}");
@@ -251,90 +253,81 @@ namespace Assets.Scripts
                     }
                 }
 
-                /*int rows = Mathf.CeilToInt(oceanSize / (2f * radius));
-                Vector2 perp = new Vector2(-dir.y, dir.x); // 垂直风向
-                for (int row = -rows; row <= rows; row++)
-                {
-                    Vector2 basePos = perp * row * 2f * radius;
-                    // 如果超出边界就跳过
-                    if (Mathf.Abs(basePos.x) > oceanSize * 0.5f || Mathf.Abs(basePos.y) > oceanSize * 0.5f)
-                        continue;
+                
+            }
 
-                    // 正波粒子
-                    var pPos = basePos;
-                    var p = new WaveParticle
+            //TODO: K2的采样，要在x,y方向完成
+            //计算采样K2范围：0.5K2p - 2.5 K2p
+            float f2p = 1 / Tp;
+            float ω2p = 2 * Mathf.PI * f2p;
+            float k2p = ω2p * ω2p / gravity;
+            float k2Min_sample = 0.5f * k2p;
+            float k2Max_sample = 2.5f * k2p;
+            Debug.Log($" k2p: {k2p},k2Min_sample: {k2Min_sample}, k2Max_sample: {k2Max_sample}");
+            for (int s = 0; s < sampleStep; s++) {
+                // swell
+                // 采样角度方向 θ
+                float theta = UnityEngine.Random.Range(0f, 2f * Mathf.PI);
+                Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
+
+                // k 长度采样
+                float k = UnityEngine.Random.Range(k2Min_sample, k2Max_sample);
+
+                float S = JONSWAPGlennSpectrum(k, dir, gravity);
+                Debug.Log($"S2: {S}");
+                // 振幅 A = sqrt(2 S)
+                float A = Mathf.Sqrt(2f * S);//* dk
+                Debug.Log($"A2: {A}");
+                // 波粒子半径及速度
+                float radius = Mathf.PI / k;
+                Debug.Log($"radius2: {radius}");
+                float phaseSpeed = Mathf.Sqrt(gravity / k);
+
+                // 沿K方向，在海面上铺排1排、同频正/负波粒子
+                // 1. 波长相关尺寸
+                float spacing = 2f * radius; // 粒子间间距
+
+                // 2. 计算沿方向 dir 和垂直方向 perp 各需要多少排
+                int numStepsDir = Mathf.CeilToInt(oceanSize / spacing);
+                int numStepsPerp = Mathf.CeilToInt(oceanSize / spacing);
+
+                // 3. 构建方向向量（单位化）
+                Vector2 dirUnit = dir.normalized;
+                Vector2 perpUnit = new Vector2(-dir.y, dir.x).normalized;
+
+                // 4. 中心偏移
+                Vector2 center = Vector2.zero;
+
+                for (int i = -numStepsDir / 2; i <= numStepsDir / 2; i++)
+                {
+                    for (int j = -numStepsPerp / 2; j <= numStepsPerp / 2; j++)
                     {
-                        position = pPos,
-                        direction = dir,
-                        baseHeight = A,
-                        phase = 0,
-                        angularFrequency = Mathf.Sqrt(gravity * k),
-                        waveNumber = k,
-                        radius = radius,
-                        speed = phaseSpeed
-                    };
-                    list.Add(p);
+                        Vector2 pos = center + i * spacing * dirUnit + j * spacing * perpUnit;
 
-                    // 负波粒子
-                    var q = p.GetNegative(planeSize, oceanSize);
-                    list.Add(q);
-                }*/
+                        // 限制在海洋区域内
+                        if (Mathf.Abs(pos.x) > oceanSize * 0.5f || Mathf.Abs(pos.y) > oceanSize * 0.5f)
+                            continue;
 
+                        // 正波粒子
+                        var p = new WaveParticle
+                        {
+                            position = pos,
+                            direction = dirUnit,
+                            baseHeight = A,
+                            phase = 0,
+                            angularFrequency = Mathf.Sqrt(gravity * k),
+                            waveNumber = k,
+                            radius = radius,
+                            speed = phaseSpeed
+                        };
+                        list.Add(p);
+
+                        // 负波粒子（可选）
+                        var q = p.GetNegative(planeSize, oceanSize);
+                        list.Add(q);
+                    }
+                }
             }
-
-            // swell
-            /*float k2 = 0.03f;
-            Debug.Log($"k2: {k2}");
-
-            //得到对应速度。此处测试先以速度等于风向
-            Vector2 dir2 = swellSpeed.normalized;
-
-            // 计算谱能量 S
-            for (float testk = 0.001f; testk < 0.5f; testk += 0.001f)
-            {
-                float testS = JONSWAPGlennSpectrum(testk, dir2, gravity);
-                float testA = Mathf.Sqrt(2f * testS);
-                float testR = Mathf.PI / testk;
-                //Debug.Log($"testk: {testk}, testS: {testS}, testA: {testA}, testR: {testR}");
-            }
-
-            float S2 = JONSWAPGlennSpectrum(k2, dir2, gravity);
-            Debug.Log($"S2: {S2}");
-            float A2 = Mathf.Sqrt(2f * S2);//* dk
-            Debug.Log($"A2: {A2}");
-            // 波粒子半径及速度
-            float radius2 = Mathf.PI / k2;
-            Debug.Log($"radius: {radius2}");
-
-            int rows2 = Mathf.CeilToInt(oceanSize / (2f * radius2));
-            Vector2 perp2 = new Vector2(-dir2.y, dir2.x); // 垂直风向
-            for (int row = -rows2; row <= rows2; row++)
-            {
-                Vector2 basePos = perp2 * row * 2f * radius2;
-                // 如果超出边界就跳过
-                if (Mathf.Abs(basePos.x) > oceanSize * 0.5f || Mathf.Abs(basePos.y) > oceanSize * 0.5f)
-                    continue;
-
-                // 正波粒子
-                var pPos = basePos;
-                var p = new WaveParticle
-                {
-                    position = pPos,
-                    direction = dir2,
-                    baseHeight = A2,
-                    phase = 0,
-                    angularFrequency = Mathf.Sqrt(gravity * k2),
-                    waveNumber = k2,
-                    radius = radius2,
-                    speed = phaseSpeed
-                };
-                //list.Add(p);
-
-                // 负波粒子
-                //var q = p.GetNegative(planeSize, oceanSize);
-                //list.Add(q);
-            }*/
-
             return list;
         }
 
