@@ -1,4 +1,4 @@
-﻿Shader "Ocean/Ocean"
+﻿﻿Shader "Ocean/OceanTest"
 {
     Properties
     {
@@ -16,9 +16,9 @@
         _FoamBiasLOD0("Foam Bias LOD0", Range(0,7)) = 1
         _FoamBiasLOD1("Foam Bias LOD1", Range(0,7)) = 1
         _FoamBiasLOD2("Foam Bias LOD2", Range(0,7)) = 1
-        _FoamScale("Foam Scale", Range(0,20)) = 1 // 原本是1 注释掉泡沫效果
-        _ContactFoam("Contact Foam", Range(0,1)) = 1 // 原本是1 注释掉泡沫效果
-        _ParticleHeightMap("Wave Particle Height Map", 2D) = "black" {} //加入新的波粒子高度图
+        _FoamScale("Foam Scale", Range(0,20)) = 1
+        _ContactFoam("Contact Foam", Range(0,1)) = 1
+
 
         [Header(Cascade 0)]
         [HideInInspector]_Displacement_c0("Displacement C0", 2D) = "black" {}
@@ -28,10 +28,10 @@
         [HideInInspector]_Displacement_c1("Displacement C1", 2D) = "black" {}
         [HideInInspector]_Derivatives_c1("Derivatives C1", 2D) = "black" {}
         [HideInInspector]_Turbulence_c1("Turbulence C1", 2D) = "white" {}
-        //[Header(Cascade 2)]
-        //[HideInInspector]_Displacement_c2("Displacement C2", 2D) = "black" {}
-        //[HideInInspector]_Derivatives_c2("Derivatives C2", 2D) = "black" {}
-        //[HideInInspector]_Turbulence_c2("Turbulence C2", 2D) = "white" {}
+        [Header(Cascade 2)]
+        [HideInInspector]_Displacement_c2("Displacement C2", 2D) = "black" {}
+        [HideInInspector]_Derivatives_c2("Derivatives C2", 2D) = "black" {}
+        [HideInInspector]_Turbulence_c2("Turbulence C2", 2D) = "white" {}
     }
         SubShader
     {
@@ -39,7 +39,7 @@
         LOD 200
 
         CGPROGRAM
-        #pragma multi_compile _ MID CLOSE ONLY_CLOSE
+        #pragma multi_compile _ MID CLOSE
         #pragma surface surf Standard fullforwardshadows vertex:vert addshadow
         #pragma target 4.0
 
@@ -62,14 +62,9 @@
         sampler2D _Derivatives_c1;
         sampler2D _Turbulence_c1;
 
-        //注释原本center的采样
-        //sampler2D _Displacement_c2;
-        //sampler2D _Derivatives_c2;
-        //sampler2D _Turbulence_c2;
-
-        //波粒子高度图参数
-        sampler2D _ParticleHeightMap;
-        float _ParticleHeightScale;
+        sampler2D _Displacement_c2;
+        sampler2D _Derivatives_c2;
+        sampler2D _Turbulence_c2;
 
         float LengthScale0;
         float LengthScale1;
@@ -87,34 +82,24 @@
 
             o.viewVector = _WorldSpaceCameraPos.xyz - mul(unity_ObjectToWorld, v.vertex).xyz;
             float viewDist = length(o.viewVector);
-            
+
             float lod_c0 = min(_LOD_scale * LengthScale0 / viewDist, 1);
             float lod_c1 = min(_LOD_scale * LengthScale1 / viewDist, 1);
             float lod_c2 = min(_LOD_scale * LengthScale2 / viewDist, 1);
-            
+
 
             float3 displacement = 0;
             float largeWavesBias = 0;
 
-            #if !defined(ONLY_CLOSE)
+
             displacement += tex2Dlod(_Displacement_c0, worldUV / LengthScale0) * lod_c0;
             largeWavesBias = displacement.y;
-            #endif
-
-            #if defined(MID) && !defined(ONLY_CLOSE)
+            #if defined(MID) || defined(CLOSE)
             displacement += tex2Dlod(_Displacement_c1, worldUV / LengthScale1) * lod_c1;
             #endif
-
-            #if defined(ONLY_CLOSE)
-            //注释掉原本center的采样
-            //displacement += tex2Dlod(_Displacement_c2, worldUV / LengthScale2) * lod_c2;
-            float2 particleUV = worldUV / 250 + 0.5; // 映射到 [0,1] 范围
-            float height = tex2Dlod(_ParticleHeightMap, float4(particleUV, 0, 0)).r;
-            displacement += float3(0, height * _ParticleHeightScale, 0);
-            //或者加lod_c2混合控制
-            //displacement += float3(0, height * _ParticleHeightScale, 0) * lod_c2;
+            #if defined(CLOSE)
+            displacement += tex2Dlod(_Displacement_c2, worldUV / LengthScale2) * lod_c2;
             #endif
-
             v.vertex.xyz += mul(unity_WorldToObject,displacement);
 
             o.lodScales = float4(lod_c0, lod_c1, lod_c2, max(displacement.y - largeWavesBias * 0.8 - _SSSBase, 0) / _SSSScale);
@@ -142,48 +127,22 @@
 
         void surf(Input IN, inout SurfaceOutputStandard o)
         {
-
-            #if defined(ONLY_CLOSE)
-            //o.Albedo = float3(1, 0, 0); // 全红色 test
-            //return;
-            #endif
             float4 derivatives = tex2D(_Derivatives_c0, IN.worldUV / LengthScale0);
-
-            #if defined(MID) && !defined(ONLY_CLOSE)
+            #if defined(MID) || defined(CLOSE)
             derivatives += tex2D(_Derivatives_c1, IN.worldUV / LengthScale1) * IN.lodScales.y;
             #endif
 
-            //#if defined(ONLY_CLOSE)
-            ////注释center
-            ////derivatives += tex2D(_Derivatives_c2, IN.worldUV / LengthScale2) * IN.lodScales.z;
-            //// 
-            ////添加新的基于粒子高度图的法线估计（简单偏导）
-            //float2 particleUV = IN.worldUV / LengthScale2 + 0.5;
-            //float e = 1.0 / 256; // 或更好的方式是 1/heightMap resolution
-
-            //float hL = tex2D(_ParticleHeightMap, particleUV - float2(e, 0)).r;
-            //float hR = tex2D(_ParticleHeightMap, particleUV + float2(e, 0)).r;
-            //float hD = tex2D(_ParticleHeightMap, particleUV - float2(0, e)).r;
-            //float hU = tex2D(_ParticleHeightMap, particleUV + float2(0, e)).r;
-
-            //float3 dx = float3(2 * e, hR - hL, 0);
-            //float3 dz = float3(0, hU - hD, 2 * e);
-            //float3 normal = normalize(cross(dz, dx));
-            //float3 worldNormal_wp = normalize(normal);
-            //#endif
+            #if defined(CLOSE)
+            derivatives += tex2D(_Derivatives_c2, IN.worldUV / LengthScale2) * IN.lodScales.z;
+            #endif
 
             float2 slope = float2(derivatives.x / (1 + derivatives.z),
                 derivatives.y / (1 + derivatives.w));
             float3 worldNormal = normalize(float3(-slope.x, 1, -slope.y));
 
-            /*#if defined(ONLY_CLOSE)
-            o.Normal = WorldToTangentNormalVector(IN, worldNormal_wp);
-            #endif*/
-
-            #if !defined(ONLY_CLOSE)
             o.Normal = WorldToTangentNormalVector(IN, worldNormal);
-            #endif
-            /*#if defined(CLOSE)
+
+            #if defined(CLOSE)
             float jacobian = tex2D(_Turbulence_c0, IN.worldUV / LengthScale0).x
                 + tex2D(_Turbulence_c1, IN.worldUV / LengthScale1).x
                 + tex2D(_Turbulence_c2, IN.worldUV / LengthScale2).x;
@@ -203,9 +162,7 @@
             float surfaceDepth = UNITY_Z_0_FAR_FROM_CLIPSPACE(IN.screenPos.z);
             float depthDifference = max(0, backgroundDepth - surfaceDepth - 0.1);
             float foam = tex2D(_FoamTexture, IN.worldUV * 0.5 + _Time.r).r;
-            jacobian += _ContactFoam * saturate(max(0, foam - depthDifference) * 5) * 0.9;*/
-            //此处置为0即可注释泡沫效果
-            float jacobian = 0;
+            jacobian += _ContactFoam * saturate(max(0, foam - depthDifference) * 5) * 0.9;
 
             o.Albedo = lerp(0, _FoamColor, jacobian);
             float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));

@@ -91,6 +91,7 @@ namespace Assets.Scripts
             //instanceMaterial.SetTexture("_HeightMap", heightMap);
             //oceanMaterial.SetTexture("_HeightMap", heightMap);
             //oceanMaterial = new Material(oceanMaterial); // 克隆材质
+            oceanMaterial = Instantiate(oceanMaterial);
             oceanMaterial.EnableKeyword("ONLY_CLOSE");
             // 禁用 FFT 级联 keyword
             oceanMaterial.DisableKeyword("MID");
