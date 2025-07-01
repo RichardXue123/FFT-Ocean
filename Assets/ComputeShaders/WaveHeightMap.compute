@@ -46,7 +46,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         {
             float t = saturate(dist / radius); // t 限制到 [0,1]
             float weight = pow(1.0f - t * t, 2);
-            height += particleHeight * weight * PlaneSize / OceanSize;
+            height += particleHeight * weight * 2;
         }
     }
     //test

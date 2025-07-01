@@ -11,27 +11,33 @@ public class OceanGeometry : MonoBehaviour
     Material oceanMaterial;
     [SerializeField]
     bool updateMaterialProperties;
-    [SerializeField]
-    bool showMaterialLods;
+    /*[SerializeField]
+    bool showMaterialLods;*/
 
     [SerializeField]
-    float lengthScale = 10;
-    [SerializeField, Range(1, 40)]
-    int vertexDensity = 30;
-    [SerializeField, Range(0, 8)]
+    float oceanLength = 100;
+    [SerializeField]
+    int gridLength = 100;
+    /*[SerializeField, Range(0, 1)]
+    float UnityUnitsPerMeter = 0.1f; // 1U = 10m*/
+    /*[SerializeField, Range(0, 8)]
     int clipLevels = 8;
     [SerializeField, Range(0, 100)]
-    float skirtSize = 50;
+    float skirtSize = 50;*/
 
-    List<Element> rings = new List<Element>();
-    List<Element> trims = new List<Element>();
+    //List<Element> rings = new List<Element>();
+    //List<Element> trims = new List<Element>();
     Element center;
-    Element skirt;
-    Quaternion[] trimRotations;
-    int previousVertexDensity;
-    float previousSkirtSize;
+    //Element skirt;
+    //Quaternion[] trimRotations;
+    //int previousVertexDensity;
+    //float previousSkirtSize;
 
-    Material[] materials;
+    [SerializeField] 
+    public RenderTexture heightMap;
+    [SerializeField] 
+    public Vector2Int textureSize = new Vector2Int(256, 256);
+    //Material[] materials;
 
     private void Start()
     {
@@ -42,53 +48,53 @@ public class OceanGeometry : MonoBehaviour
         oceanMaterial.SetTexture("_Derivatives_c0", wavesGenerator.cascade0.Derivatives);
         oceanMaterial.SetTexture("_Turbulence_c0", wavesGenerator.cascade0.Turbulence);
 
-        oceanMaterial.SetTexture("_Displacement_c1", wavesGenerator.cascade1.Displacement);
-        oceanMaterial.SetTexture("_Derivatives_c1", wavesGenerator.cascade1.Derivatives);
-        oceanMaterial.SetTexture("_Turbulence_c1", wavesGenerator.cascade1.Turbulence);
+        //oceanMaterial.SetTexture("_ParticleHeightMap", heightMap);
+        //oceanMaterial.SetTexture("_Displacement_c1", wavesGenerator.cascade1.Displacement);
+        //oceanMaterial.SetTexture("_Derivatives_c1", wavesGenerator.cascade1.Derivatives);
+        //oceanMaterial.SetTexture("_Turbulence_c1", wavesGenerator.cascade1.Turbulence);
 
         //oceanMaterial.SetTexture("_Displacement_c2", wavesGenerator.cascade2.Displacement);
         //oceanMaterial.SetTexture("_Derivatives_c2", wavesGenerator.cascade2.Derivatives);
         //oceanMaterial.SetTexture("_Turbulence_c2", wavesGenerator.cascade2.Turbulence);
 
 
-        materials = new Material[3];
-        materials[0] = new Material(oceanMaterial);
-        materials[0].EnableKeyword("ONLY_CLOSE");
+        Material material = new Material(oceanMaterial);
+        material.EnableKeyword("CLOSE");
 
-        materials[1] = new Material(oceanMaterial);
-        materials[1].EnableKeyword("MID");
-        materials[1].DisableKeyword("CLOSE");
+        //materials[1] = new Material(oceanMaterial);
+        //materials[1].EnableKeyword("MID");
+        //materials[1].DisableKeyword("CLOSE");
 
-        materials[2] = new Material(oceanMaterial);
-        materials[2].DisableKeyword("MID");
-        materials[2].DisableKeyword("CLOSE");
+        //materials[2] = new Material(oceanMaterial);
+        //materials[2].DisableKeyword("MID");
+        //materials[2].DisableKeyword("CLOSE");
 
-        trimRotations = new Quaternion[]
+        /*trimRotations = new Quaternion[]
         {
             Quaternion.AngleAxis(180, Vector3.up),
             Quaternion.AngleAxis(90, Vector3.up),
             Quaternion.AngleAxis(270, Vector3.up),
             Quaternion.identity,
-        };
+        };*/
 
         InstantiateMeshes();
+        // 初始化 heightMap
+        heightMap = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.RFloat);
+        heightMap.enableRandomWrite = true;
+        //采样模式改为双/三线性过滤
+        heightMap.filterMode = FilterMode.Trilinear;  // 或者 Bilinear
+        heightMap.wrapMode = TextureWrapMode.Clamp;
+        heightMap.Create();
+
+        //Debug.Log("Material instance ID: " + oceanMaterial.GetInstanceID());
     }
 
     private void Update()
     {
-        if (rings.Count != clipLevels || trims.Count != clipLevels
-            || previousVertexDensity != vertexDensity || !Mathf.Approximately(previousSkirtSize, skirtSize))
-        {
-            InstantiateMeshes();
-            previousVertexDensity = vertexDensity;
-            previousSkirtSize = skirtSize;
-        }
-
-        UpdatePositions();
-        UpdateMaterials();
+        
     }
 
-    void UpdateMaterials()
+    /*void UpdateMaterials()
     {
         if (updateMaterialProperties && !showMaterialLods)
         {
@@ -117,9 +123,9 @@ public class OceanGeometry : MonoBehaviour
             rings[i].MeshRenderer.material = GetMaterial(clipLevels - activeLevels + i);
             trims[i].MeshRenderer.material = GetMaterial(clipLevels - activeLevels + i);
         }
-    }
+    }*/
 
-    Material GetMaterial(int lodLevel)
+    /*Material GetMaterial(int lodLevel)
     {
         if (lodLevel - 2 <= 0)
             return materials[0];
@@ -128,9 +134,9 @@ public class OceanGeometry : MonoBehaviour
             return materials[1];
 
         return materials[2];
-    }
+    }*/
 
-    void UpdatePositions()
+    /*void UpdatePositions()
     {
         int k = GridSize();
         int activeLevels = ActiveLodlevels();
@@ -167,35 +173,35 @@ public class OceanGeometry : MonoBehaviour
         scale = lengthScale * 2 * Mathf.Pow(2, clipLevels);
         skirt.Transform.position = new Vector3(-1, 0, -1) * scale * (skirtSize + 0.5f - 0.5f / GridSize()) + previousSnappedPosition;
         skirt.Transform.localScale = new Vector3(scale, 1, scale);
-    }
+    }*/
 
-    int ActiveLodlevels()
+    /*int ActiveLodlevels()
     {
         return clipLevels - Mathf.Clamp((int)Mathf.Log((1.7f * Mathf.Abs(viewer.position.y) + 1) / lengthScale, 2), 0, clipLevels);
-    }
+    }*/
 
-    float ClipLevelScale(int level, int activeLevels)
+    /*float ClipLevelScale(int level, int activeLevels)
     {
         return lengthScale / GridSize() * Mathf.Pow(2, clipLevels - activeLevels + level + 1);
-    }
+    }*/
 
-    Vector3 OffsetFromCenter(int level, int activeLevels)
+    /*Vector3 OffsetFromCenter(int level, int activeLevels)
     {
         return (Mathf.Pow(2, clipLevels) + GeometricProgressionSum(2, 2, clipLevels - activeLevels + level + 1, clipLevels - 1))
                * lengthScale / GridSize() * (GridSize() - 1) / 2 * new Vector3(-1, 0, -1);
-    }
+    }*/
 
-    float GeometricProgressionSum(float b0, float q, int n1, int n2)
+    /*float GeometricProgressionSum(float b0, float q, int n1, int n2)
     {
         return b0 / (1 - q) * (Mathf.Pow(q, n2) - Mathf.Pow(q, n1));
-    }
+    }*/
 
-    int GridSize()
+    /*int GridSize()
     {
         return 4 * vertexDensity + 1;
-    }
+    }*/
 
-    Vector3 Snap(Vector3 coords, float scale)
+    /*Vector3 Snap(Vector3 coords, float scale)
     {
         if (coords.x >= 0)
             coords.x = Mathf.Floor(coords.x / scale) * scale;
@@ -209,28 +215,13 @@ public class OceanGeometry : MonoBehaviour
 
         coords.y = 0;
         return coords;
-    }
+    }*/
 
     void InstantiateMeshes()
     {
-        foreach (var child in gameObject.GetComponentsInChildren<Transform>())
-        {
-            if (child != transform)
-                Destroy(child.gameObject);
-        }
-        rings.Clear();
-        trims.Clear();
-
-        int k = GridSize();
-        center = InstantiateElement("Center", CreatePlaneMesh(2 * k, 2 * k, 1, Seams.All), materials[materials.Length - 1]);
-        Mesh ring = CreateRingMesh(k, 1);
-        Mesh trim = CreateTrimMesh(k, 1);
-        for (int i = 0; i < clipLevels; i++)
-        {
-            rings.Add(InstantiateElement("Ring " + i, ring, materials[materials.Length - 1]));
-            trims.Add(InstantiateElement("Trim " + i, trim, materials[materials.Length - 1]));
-        }
-        skirt = InstantiateElement("Skirt", CreateSkirtMesh(k, skirtSize), materials[materials.Length - 1]);
+        float meshScale = oceanLength / gridLength;
+        Mesh centerMesh = CreatePlaneMesh(gridLength, gridLength, meshScale, Seams.None);
+        center = InstantiateElement("Center", centerMesh, oceanMaterial);
     }
 
     Element InstantiateElement(string name, Mesh mesh, Material mat)
@@ -250,7 +241,7 @@ public class OceanGeometry : MonoBehaviour
         return new Element(go.transform, meshRenderer);
     }
 
-    Mesh CreateSkirtMesh(int k, float outerBorderScale)
+    /*Mesh CreateSkirtMesh(int k, float outerBorderScale)
     {
         Mesh mesh = new Mesh();
         mesh.name = "Clipmap skirt";
@@ -293,9 +284,9 @@ public class OceanGeometry : MonoBehaviour
         combine[7].mesh = quad;
         mesh.CombineMeshes(combine, true);
         return mesh;
-    }
+    }*/
 
-    Mesh CreateTrimMesh(int k, float lengthScale)
+    /*Mesh CreateTrimMesh(int k, float lengthScale)
     {
         Mesh mesh = new Mesh();
         mesh.name = "Clipmap trim";
@@ -309,9 +300,9 @@ public class OceanGeometry : MonoBehaviour
 
         mesh.CombineMeshes(combine, true);
         return mesh;
-    }
+    }*/
 
-    Mesh CreateRingMesh(int k, float lengthScale)
+    /*Mesh CreateRingMesh(int k, float lengthScale)
     {
         Mesh mesh = new Mesh();
         mesh.name = "Clipmap ring";
@@ -334,7 +325,7 @@ public class OceanGeometry : MonoBehaviour
 
         mesh.CombineMeshes(combine, true);
         return mesh;
-    }
+    }*/
 
     Mesh CreatePlaneMesh(int width, int height, float lengthScale, Seams seams = Seams.None, int trianglesShift = 0)
     {
@@ -358,7 +349,10 @@ public class OceanGeometry : MonoBehaviour
                 if ((j == 0 && seams.HasFlag(Seams.Left)) || (j == width && seams.HasFlag(Seams.Right)))
                     z = z / 2 * 2;
 
-                vertices[j + i * (width + 1)] = new Vector3(x, 0, z) * lengthScale;
+                //vertices[j + i * (width + 1)] = new Vector3(x, 0, z) * lengthScale;
+                float xOffset = width / 2.0f;
+                float zOffset = height / 2.0f;
+                vertices[j + i * (width + 1)] = new Vector3(x - xOffset, 0, z - zOffset) * lengthScale;
                 normals[j + i * (width + 1)] = Vector3.up;
             }
         }

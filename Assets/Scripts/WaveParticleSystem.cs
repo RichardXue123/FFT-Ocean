@@ -91,7 +91,7 @@ namespace Assets.Scripts
             //instanceMaterial.SetTexture("_HeightMap", heightMap);
             //oceanMaterial.SetTexture("_HeightMap", heightMap);
             //oceanMaterial = new Material(oceanMaterial); // 克隆材质
-            oceanMaterial = Instantiate(oceanMaterial);
+            //oceanMaterial = Instantiate(oceanMaterial);
             oceanMaterial.EnableKeyword("ONLY_CLOSE");
             // 禁用 FFT 级联 keyword
             oceanMaterial.DisableKeyword("MID");
@@ -112,7 +112,7 @@ namespace Assets.Scripts
                 oceanMaterial,
                 this.transform    // 挂到当前 GameObject 下面
             );
-
+            //Debug.Log("Material instance ID: " + oceanMaterial.GetInstanceID());
         }
         public void Update()
         {
@@ -164,7 +164,7 @@ namespace Assets.Scripts
             var list = new List<WaveParticle>();
 
             // 根据分辨率与海洋大小 确定波矢量k取值范围 不应过高：多余细节；不应过低：影响太多全局
-            float lambdaMax = 2 * oceanSize ;        // 最长波长
+            float lambdaMax = oceanSize ;        // 最长波长
             float lambdaMin = oceanSize / resolution;  // 最短波长
             float kMin = 2 * Mathf.PI / lambdaMax;
             float kMax = 2 * Mathf.PI / lambdaMin;
@@ -265,7 +265,9 @@ namespace Assets.Scripts
             float k2Min_sample = 0.5f * k2p;
             float k2Max_sample = 2.5f * k2p;
             Debug.Log($" k2p: {k2p},k2Min_sample: {k2Min_sample}, k2Max_sample: {k2Max_sample}");
-            for (int s = 0; s < sampleStep; s++) {
+            //sampleStep
+            for (int s = 0; s < 0; s++)
+            {
                 // swell
                 // 采样角度方向 θ
                 float theta = UnityEngine.Random.Range(0f, 2f * Mathf.PI);

@@ -133,6 +133,7 @@ GameObject:
   - component: {fileID: 77222650}
   - component: {fileID: 77222649}
   - component: {fileID: 77222648}
+  - component: {fileID: 77222651}
   m_Layer: 0
   m_Name: Ocean
   m_TagString: Untagged
@@ -156,11 +157,10 @@ MonoBehaviour:
   viewer: {fileID: 963194228}
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   updateMaterialProperties: 0
-  showMaterialLods: 0
-  lengthScale: 15
-  vertexDensity: 30
-  clipLevels: 8
-  skirtSize: 55.4
+  oceanLength: 500
+  gridLength: 500
+  heightMap: {fileID: 0}
+  textureSize: {x: 256, y: 256}
 --- !u!114 &77222649
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -177,8 +177,6 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   alwaysRecalculateInitials: 1
   lengthScale0: 250
-  lengthScale1: 17
-  lengthScale2: 5
   fftShader: {fileID: 7200000, guid: 38e7049002205c24c8328830bc846265, type: 3}
   initialSpectrumShader: {fileID: 7200000, guid: 5cb4d3604a2a309418e28b4c84483b75,
     type: 3}
@@ -200,6 +198,38 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &77222651
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 77222647}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  frameCnt: 0
+  windSpeed: {x: 5, y: 0}
+  swellSpeed: {x: 0, y: 10}
+  waterDepth: 100
+  maxRadius: 20
+  layerCnt: 1
+  sampleStep: 100
+  gravity: 9.81
+  Tp: 10
+  Hs: 3
+  oceanSize: 100
+  fetchSize: 10000
+  heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
+    type: 3}
+  heightMap: {fileID: 0}
+  resolution: 512
+  textureSize: {x: 512, y: 512}
+  planeSize: 100
+  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  heightMapDisplay: {fileID: 1707354935}
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0
@@ -468,13 +498,13 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
-  m_LocalRotation: {x: 0, y: 0.9904012, z: 0, w: 0.13822262}
-  m_LocalPosition: {x: 0, y: 3.61, z: -10}
+  m_LocalRotation: {x: 0.11082195, y: 0.87686634, z: -0.24317652, w: 0.3996111}
+  m_LocalPosition: {x: -94, y: 75, z: 89}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 164.11, z: 0}
+  m_LocalEulerAnglesHint: {x: 31, y: 131, z: 0}
 --- !u!114 &963194229
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -668,7 +698,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1848734006
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -676,7 +706,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1848734005}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
@@ -687,19 +717,19 @@ MonoBehaviour:
   waterDepth: 100
   maxRadius: 20
   layerCnt: 1
-  sampleStep: 10
+  sampleStep: 100
   gravity: 9.81
   Tp: 10
   Hs: 3
-  oceanSize: 1000
+  oceanSize: 100
   fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
     type: 3}
   heightMap: {fileID: 0}
-  resolution: 256
-  textureSize: {x: 256, y: 256}
+  resolution: 512
+  textureSize: {x: 512, y: 512}
   planeSize: 100
-  oceanMaterial: {fileID: 2100000, guid: 8abd22772f4bfcf4fa44ae49fdde454b, type: 2}
+  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
 --- !u!4 &1848734007
 Transform:
@@ -709,7 +739,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1848734005}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 10, z: 0}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}

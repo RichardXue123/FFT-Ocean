@@ -18,10 +18,6 @@ public class WavesGenerator : MonoBehaviour
     bool alwaysRecalculateInitials = true;
     [SerializeField]
     float lengthScale0 = 250;
-    [SerializeField]
-    float lengthScale1 = 17;
-    [SerializeField]
-    float lengthScale2 = 5;
 
     [SerializeField]
     ComputeShader fftShader;
@@ -43,8 +39,8 @@ public class WavesGenerator : MonoBehaviour
         gaussianNoise = GetNoiseTexture(size);
 
         cascade0 = new WavesCascade(size, initialSpectrumShader, timeDependentSpectrumShader, texturesMergerShader, fft, gaussianNoise);
-        cascade1 = new WavesCascade(size, initialSpectrumShader, timeDependentSpectrumShader, texturesMergerShader, fft, gaussianNoise);
-        cascade2 = new WavesCascade(size, initialSpectrumShader, timeDependentSpectrumShader, texturesMergerShader, fft, gaussianNoise);
+        //cascade1 = new WavesCascade(size, initialSpectrumShader, timeDependentSpectrumShader, texturesMergerShader, fft, gaussianNoise);
+        //cascade2 = new WavesCascade(size, initialSpectrumShader, timeDependentSpectrumShader, texturesMergerShader, fft, gaussianNoise);
 
         InitialiseCascades();
 
@@ -53,16 +49,14 @@ public class WavesGenerator : MonoBehaviour
 
     void InitialiseCascades()
     {
-        float time = Time.time;
-        float boundary1 = 2 * Mathf.PI / lengthScale1 * 6f + time/1000;
-        float boundary2 = 2 * Mathf.PI / lengthScale2 * 6f + time / 1000;
-        cascade0.CalculateInitials(wavesSettings, lengthScale0, 0.0001f, boundary1);
-        cascade1.CalculateInitials(wavesSettings, lengthScale1, boundary1, boundary2);
-        cascade2.CalculateInitials(wavesSettings, lengthScale2, boundary2, 9999);
+        //float time = Time.time;
+        cascade0.CalculateInitials(wavesSettings, lengthScale0, 0.0001f, 999f);
+        //cascade1.CalculateInitials(wavesSettings, lengthScale1, boundary1, boundary2);
+        //cascade2.CalculateInitials(wavesSettings, lengthScale2, boundary2, 9999);
 
         Shader.SetGlobalFloat("LengthScale0", lengthScale0);
-        Shader.SetGlobalFloat("LengthScale1", lengthScale1);
-        Shader.SetGlobalFloat("LengthScale2", lengthScale2);
+        //Shader.SetGlobalFloat("LengthScale1", lengthScale1);
+        //Shader.SetGlobalFloat("LengthScale2", lengthScale2);
     }
 
     private void Update()
@@ -73,7 +67,7 @@ public class WavesGenerator : MonoBehaviour
         }
 
         cascade0.CalculateWavesAtTime(Time.time);
-        cascade1.CalculateWavesAtTime(Time.time);
+        //cascade1.CalculateWavesAtTime(Time.time);
         //cascade2.CalculateWavesAtTime(Time.time);
 
         RequestReadbacks();
@@ -119,8 +113,6 @@ public class WavesGenerator : MonoBehaviour
     private void OnDestroy()
     {
         cascade0.Dispose();
-        cascade1.Dispose();
-        cascade2.Dispose();
     }
 
     void RequestReadbacks()
