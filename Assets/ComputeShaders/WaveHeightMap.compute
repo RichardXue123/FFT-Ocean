@@ -45,8 +45,14 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         if (dist < radius)
         {
             float t = saturate(dist / radius); // t 限制到 [0,1]
-            float weight = pow(1.0f - t * t, 2);
-            height += particleHeight * weight * 2;
+            // 多项式 bump
+            //float weight = pow(1.0f - t * t, 2);
+            // 余弦 bump
+            float weight = cos(t * 3.1415926f) * 0.5f + 0.5f;
+            // 高斯 bump a 通常选 2~6
+            //float a = 2;
+            //float weight = exp(-a * t * t);
+            height += particleHeight * weight ;
         }
     }
     //test

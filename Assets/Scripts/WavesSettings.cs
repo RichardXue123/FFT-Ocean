@@ -17,8 +17,9 @@ public struct DisplaySpectrumSettings
 {
     [Range(0, 1)]
     public float scale;
-    public float windSpeed;
-    public float windDirection;
+    public Vector2 windSpeed;
+    //public float windSpeed;
+    //public float windDirection;
     public float fetch;
     [Range(0, 1)]
     public float spreadBlend;
@@ -38,7 +39,7 @@ public class WavesSettings : ScriptableObject
     public DisplaySpectrumSettings local;
     public DisplaySpectrumSettings swell;
 
-    SpectrumSettings[] spectrums = new SpectrumSettings[2];
+    public SpectrumSettings[] spectrums = new SpectrumSettings[2];
 
     public void SetParametersToShader(ComputeShader shader, int kernelIndex, ComputeBuffer paramsBuffer)
     {
@@ -55,11 +56,15 @@ public class WavesSettings : ScriptableObject
     void FillSettingsStruct(DisplaySpectrumSettings display, ref SpectrumSettings settings)
     {
         settings.scale = display.scale;
-        settings.angle = display.windDirection / 180 * Mathf.PI;
+        //settings.angle = display.windDirection / 180 * Mathf.PI;
+        settings.angle = Mathf.Atan2(-display.windSpeed.y, -display.windSpeed.x);
         settings.spreadBlend = display.spreadBlend;
         settings.swell = Mathf.Clamp(display.swell, 0.01f, 1);
-        settings.alpha = JonswapAlpha(g, display.fetch, display.windSpeed);
-        settings.peakOmega = JonswapPeakFrequency(g, display.fetch, display.windSpeed);
+        //settings.alpha = JonswapAlpha(g, display.fetch, display.windSpeed);
+        //settings.peakOmega = JonswapPeakFrequency(g, display.fetch, display.windSpeed);
+        float windSpeedMag = display.windSpeed.magnitude;
+        settings.alpha = JonswapAlpha(g, display.fetch, windSpeedMag);
+        settings.peakOmega = JonswapPeakFrequency(g, display.fetch, windSpeedMag);
         settings.gamma = display.peakEnhancement;
         settings.shortWavesFade = display.shortWavesFade;
     }

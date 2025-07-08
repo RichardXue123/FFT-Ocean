@@ -79,7 +79,7 @@ namespace Assets.Scripts
         {
             height = baseHeight;
             position += deltaTime * speed * direction * planeSize / oceanSize; // 更新位置
-            float worldRadius = radius * planeSize / oceanSize;
+            /*float worldRadius = radius * planeSize / oceanSize;
             if (position.x > planeSize / 2 + worldRadius)
             { 
                 position.x -= (planeSize + 2 * worldRadius); 
@@ -95,7 +95,7 @@ namespace Assets.Scripts
             else if (position.y < -(planeSize / 2 + worldRadius))
             {
                 position.y += (planeSize + 2 * worldRadius);
-            }
+            }*/
         }
 
         // 转换为 Vector4 传入 GPU

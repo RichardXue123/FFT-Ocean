@@ -17,6 +17,7 @@
         _FoamScale("Foam Scale", Range(0,20)) = 1
         _ContactFoam("Contact Foam", Range(0,1)) = 1
         _ParticleHeightMap("Wave Particle Height Map", 2D) = "black" {} //加入新的波粒子高度图
+        _ParticleNormalMap("Wave Particle Height Map", 2D) = "black" {} //加入新的波粒子法线图
 
 
         [Header(Cascade 0)]
@@ -53,6 +54,8 @@
         sampler2D _ParticleHeightMap;
         float _ParticleHeightScale;
 
+        sampler2D _ParticleNormalMap;
+
         float LengthScale0;
         float _LOD_scale = 1.0f;
         float _SSSBase;
@@ -65,7 +68,7 @@
             float4 worldUV = float4(worldPos.xz, 0, 0);
             o.worldUV = worldUV.xy;
 
-            //o.viewVector = _WorldSpaceCameraPos.xyz - mul(unity_ObjectToWorld, v.vertex).xyz;
+            o.viewVector = _WorldSpaceCameraPos - worldPos;
             //float viewDist = length(o.viewVector);
 
             float3 displacement = 0;
@@ -77,18 +80,17 @@
                 float2 particleUV = worldUV / 100 + 0.5; // 映射到 [0,1] 范围
                 float height = tex2Dlod(_ParticleHeightMap, float4(particleUV, 0, 0)).r;
                 displacement += float3(0, height * _ParticleHeightScale, 0);
+
+                // ✅ 设置 lodScales 用于 SSS 效果计算
+                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
             }
             else
             {
                 displacement += tex2Dlod(_Displacement_c0, worldUV / LengthScale0);
+                float largeWavesBias = displacement.y;
+                o.lodScales = float4(0, 0, 1, max(displacement.y - largeWavesBias * 0.8 - _SSSBase, 0) / _SSSScale);
             }
-            //largeWavesBias = displacement.y;
-            /*#if defined(CLOSE)
-            displacement += tex2Dlod(_Displacement_c2, worldUV / LengthScale2) * lod_c2;
-            #endif*/
             v.vertex.xyz += mul(unity_WorldToObject,displacement);
-
-            //o.lodScales = float4(lod_c0, lod_c1, lod_c2, max(displacement.y - largeWavesBias * 0.8 - _SSSBase, 0) / _SSSScale);
         }
 
         fixed4 _Color, _FoamColor, _SSSColor;
@@ -115,68 +117,76 @@
         {
             float2 worldPosXZ = IN.worldUV;
 
-            // Mask 中心 100x100 世界坐标区域（即 x,z ∈ [-50,50]）
+            bool inParticleZone = abs(worldPosXZ.x) < 50 && abs(worldPosXZ.y) < 50;
+
+            float3 worldNormal;
+
             if (abs(worldPosXZ.x) < 50 && abs(worldPosXZ.y) < 50)
             {
-                //discard; // 可改为透明处理
-                //return;
-            }
-            float4 derivatives = tex2D(_Derivatives_c0, IN.worldUV / LengthScale0);
-            /*#if defined(MID) || defined(CLOSE)
-            derivatives += tex2D(_Derivatives_c1, IN.worldUV / LengthScale1) * IN.lodScales.y;
-            #endif
-            #if defined(CLOSE)
-            derivatives += tex2D(_Derivatives_c2, IN.worldUV / LengthScale2) * IN.lodScales.z;
-            #endif*/
+                // 1. 映射 UV
+                float2 uv = worldPosXZ / 100 + 0.5;
 
-            float2 slope = float2(derivatives.x / (1 + derivatives.z),
-                derivatives.y / (1 + derivatives.w));
-            float3 worldNormal = normalize(float3(-slope.x, 1, -slope.y));
+                // 2. 贴图步长
+                float texelSize = 1.0 / 512.0;
+
+                // 3. 采样上下左右四个点
+                float hC = tex2D(_ParticleHeightMap, uv).r;
+                float hL = tex2D(_ParticleHeightMap, uv + float2(-texelSize, 0)).r;
+                float hR = tex2D(_ParticleHeightMap, uv + float2(texelSize, 0)).r;
+                float hD = tex2D(_ParticleHeightMap, uv + float2(0, -texelSize)).r;
+                float hU = tex2D(_ParticleHeightMap, uv + float2(0, texelSize)).r;
+
+                // 4. 计算 dx, dz 方向向量
+                float particleRegionWidth = 100; // 你的实际区域宽度
+                float3 dx = float3(2 * texelSize * particleRegionWidth, hR - hL, 0);
+                float3 dz = float3(0, hU - hD, 2 * texelSize * particleRegionWidth);
+
+                // 5. 交叉乘得法线
+                float3 normal = normalize(cross(dz, dx));
+                //float3 normal = tex2D(_ParticleNormalMap, uv).xyz;
+                //float3 normal = tex2D(_ParticleNormalMap, uv).xyz * 2 - 1;
+                worldNormal = normal;
+            }
+            else
+            {
+                // 非粒子区域：使用 FFT 法线贴图
+                float4 derivatives = tex2D(_Derivatives_c0, IN.worldUV / LengthScale0);
+                float2 slope = float2(derivatives.x / (1 + derivatives.z), derivatives.y / (1 + derivatives.w));
+                worldNormal = normalize(float3(-slope.x, 1, -slope.y));
+
+                //float2 uv = IN.worldUV / LengthScale0;
+                //float texelSize = 1.0 / 512.0; // 如果你的 FFT 贴图是 512x512
+
+                //float hC = tex2D(_Displacement_c0, uv).y;
+                //float hL = tex2D(_Displacement_c0, uv + float2(-texelSize, 0)).y;
+                //float hR = tex2D(_Displacement_c0, uv + float2(texelSize, 0)).y;
+                //float hD = tex2D(_Displacement_c0, uv + float2(0, -texelSize)).y;
+                //float hU = tex2D(_Displacement_c0, uv + float2(0, texelSize)).y;
+
+                //float3 dx = float3(2 * texelSize * LengthScale0, hR - hL, 0);
+                //float3 dz = float3(0, hU - hD, 2 * texelSize * LengthScale0);
+
+                //worldNormal = normalize(cross(dz, dx));
+            }
 
             o.Normal = WorldToTangentNormalVector(IN, worldNormal);
 
-            float jacobian = tex2D(_Turbulence_c0, IN.worldUV / LengthScale0).x;
-            jacobian = min(1, max(0, (-jacobian + _FoamBiasLOD0) * _FoamScale));
-
-            /*#if defined(CLOSE)
-            float jacobian = tex2D(_Turbulence_c0, IN.worldUV / LengthScale0).x
-                + tex2D(_Turbulence_c1, IN.worldUV / LengthScale1).x
-                + tex2D(_Turbulence_c2, IN.worldUV / LengthScale2).x;
-            jacobian = min(1, max(0, (-jacobian + _FoamBiasLOD2) * _FoamScale));
-            #elif defined(MID)
-            float jacobian = tex2D(_Turbulence_c0, IN.worldUV / LengthScale0).x
-                + tex2D(_Turbulence_c1, IN.worldUV / LengthScale1).x;
-            jacobian = min(1, max(0, (-jacobian + _FoamBiasLOD1) * _FoamScale));
-            #else
-            float jacobian = tex2D(_Turbulence_c0, IN.worldUV / LengthScale0).x;
-            jacobian = min(1, max(0, (-jacobian + _FoamBiasLOD0) * _FoamScale));
-            #endif*/
-
-            float2 screenUV = IN.screenPos.xy / IN.screenPos.w;
-            float backgroundDepth =
-                LinearEyeDepth(SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, screenUV));
-            float surfaceDepth = UNITY_Z_0_FAR_FROM_CLIPSPACE(IN.screenPos.z);
-            float depthDifference = max(0, backgroundDepth - surfaceDepth - 0.1);
-            float foam = tex2D(_FoamTexture, IN.worldUV * 0.5 + _Time.r).r;
-            jacobian += _ContactFoam * saturate(max(0, foam - depthDifference) * 5) * 0.9;
-
-            jacobian = 0;
-
-            o.Albedo = lerp(0, _FoamColor, jacobian);
-            float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));
-            o.Smoothness = lerp(distanceGloss, 0, jacobian);
-            o.Metallic = 0;
-
+            // 外观设置（不包含泡沫）
             float3 viewDir = normalize(IN.viewVector);
             float3 H = normalize(-worldNormal + _WorldSpaceLightPos0);
             float ViewDotH = pow5(saturate(dot(viewDir, -H))) * 30 * _SSSStrength;
-            fixed3 color = lerp(_Color, saturate(_Color + _SSSColor.rgb * ViewDotH * IN.lodScales.w), IN.lodScales.z);
 
-            float fresnel = dot(worldNormal, viewDir);
-            fresnel = saturate(1 - fresnel);
-            fresnel = pow5(fresnel);
+            float fresnel = pow5(saturate(1 - dot(worldNormal, viewDir)));
 
-            o.Emission = lerp(color * (1 - fresnel), 0, jacobian);
+            float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));
+            o.Smoothness = distanceGloss;
+            o.Metallic = 0;
+
+            //float3 color = lerp(_Color, saturate(_Color + _SSSColor.rgb * ViewDotH * IN.lodScales.w), IN.lodScales.z);
+            //float3 color = _Color + _SSSColor.rgb * ViewDotH * 0.2;
+            float3 color = _Color;
+            o.Albedo = color;
+            o.Emission = color * (1 - fresnel);
         }
         ENDCG
     }

@@ -211,25 +211,94 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   frameCnt: 0
-  windSpeed: {x: 5, y: 0}
-  swellSpeed: {x: 0, y: 10}
-  waterDepth: 100
-  maxRadius: 20
-  layerCnt: 1
-  sampleStep: 100
-  gravity: 9.81
+  particleCnt: 0
+  wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
+  sampleStep: 20
   Tp: 10
   Hs: 3
   oceanSize: 100
   fetchSize: 10000
-  heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
+  heightMapComputeShader: {fileID: 7200000, guid: 83b3be39cba2502458208423702645e5,
     type: 3}
   heightMap: {fileID: 0}
+  normalMap: {fileID: 0}
   resolution: 512
   textureSize: {x: 512, y: 512}
   planeSize: 100
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
+  normalMapDisplay: {fileID: 232618950}
+--- !u!1 &232618948
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 232618949}
+  - component: {fileID: 232618951}
+  - component: {fileID: 232618950}
+  m_Layer: 5
+  m_Name: NormalMap
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &232618949
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 232618948}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 959523115}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: -371.5, y: -237}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &232618950
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 232618948}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1344c3c82d62a2a41a3576d8abb8e3ea, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Texture: {fileID: 0}
+  m_UVRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+--- !u!222 &232618951
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 232618948}
+  m_CullTransparentMesh: 0
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0
@@ -413,6 +482,7 @@ RectTransform:
   m_LocalScale: {x: 0, y: 0, z: 0}
   m_Children:
   - {fileID: 1707354934}
+  - {fileID: 232618949}
   m_Father: {fileID: 0}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -623,7 +693,7 @@ GameObject:
   - component: {fileID: 1707354936}
   - component: {fileID: 1707354935}
   m_Layer: 5
-  m_Name: RawImage
+  m_Name: HeightMap
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -645,7 +715,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -432, y: -237}
+  m_AnchoredPosition: {x: -495.3, y: -237}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1707354935
@@ -712,13 +782,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   frameCnt: 0
-  windSpeed: {x: 5, y: 0}
-  swellSpeed: {x: 0, y: 10}
-  waterDepth: 100
-  maxRadius: 20
-  layerCnt: 1
+  particleCnt: 0
+  wavesSettings: {fileID: 0}
   sampleStep: 100
-  gravity: 9.81
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -726,11 +792,13 @@ MonoBehaviour:
   heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
     type: 3}
   heightMap: {fileID: 0}
+  normalMap: {fileID: 0}
   resolution: 512
   textureSize: {x: 512, y: 512}
   planeSize: 100
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
+  normalMapDisplay: {fileID: 0}
 --- !u!4 &1848734007
 Transform:
   m_ObjectHideFlags: 0

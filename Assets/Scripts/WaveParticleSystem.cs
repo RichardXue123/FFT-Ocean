@@ -14,30 +14,34 @@ namespace Assets.Scripts
         private ComputeBuffer particleBuffer;
         //private ComputeBuffer particleBuffer2;
         public int frameCnt;
+        public int particleCnt;
 
         // 基础配置参数
+        [SerializeField]
+        WavesSettings wavesSettings;
         [Header("Wave Parameters")]
-        public Vector2 windSpeed = new Vector2(5,0);
-        public Vector2 swellSpeed = new Vector2(20, 0);
+        //public Vector2 windSpeed = new Vector2(5,0);
+        //public Vector2 swellSpeed = new Vector2(20, 0);
         //[Range(0, 20)] public float windSpeed = 5f;
-        [SerializeField] float waterDepth = 100f;
-        [SerializeField] public float maxRadius= 20f;
-        [SerializeField] public int layerCnt = 1;
+        //[SerializeField] float waterDepth = 100f;
+        //[SerializeField] public float maxRadius= 20f;
+        //[SerializeField] public int layerCnt = 1;
         [SerializeField] public int sampleStep = 100;
-        [SerializeField] public float gravity = 9.81f;
+        //[SerializeField] public float gravity = 9.81f;
         [SerializeField]
         [Tooltip("峰值周期")]
         public float Tp = 3.8f;//Tp
         [SerializeField]
         [Tooltip("有义波高")]
         public float Hs = 3.0f;//有义波高，默认3m
-        [SerializeField] float oceanSize = 10f;
+        [SerializeField] float oceanSize = 100f;
         [SerializeField] float fetchSize = 1000000f;
 
 
         [Header("Rendering")]
         [SerializeField] public ComputeShader heightMapComputeShader;
         [SerializeField] public RenderTexture heightMap;
+        [SerializeField] public RenderTexture normalMap;
         [SerializeField] public int resolution = 256;
         [SerializeField] public Vector2Int textureSize = new Vector2Int(256, 256);
         [SerializeField] float planeSize = 10f;
@@ -47,6 +51,7 @@ namespace Assets.Scripts
         MeshUtils.Element OceanCenter;
 
         public UnityEngine.UI.RawImage heightMapDisplay;
+        public UnityEngine.UI.RawImage normalMapDisplay;
 
         static double[] p = {0.99999999999980993, 676.5203681218851, -1259.1392167224028,
         771.32342877765313, -176.61502916214059, 12.507343278686905,
@@ -62,23 +67,30 @@ namespace Assets.Scripts
             Debug.Log("WaveParticleSystem Start called!");
             //InitializeSimpleWave();
             particles.Clear();
-            //particles = GenerateParticles(particleCnt, windSpeed);
-            //particles = GenerateParticlesTest(count: 1, windSpeed: 10.0f);
-            particles = GenerateParticlesBySpectrum();
+            //particles = GenerateParticlesBySpectrum();
             Debug.Log($"Generated {particles.Count} basic wave particles");
             // 初始化 ComputeBuffer
-            particleBuffer = new ComputeBuffer(particles.Count, sizeof(float) * 4);
-
+            if (particles.Count == 0)
+            {
+                Debug.LogWarning("No particles to update, skipping buffer update.");
+            }
+            else {
+                particleBuffer = new ComputeBuffer(particles.Count, sizeof(float) * 4);
+            }
             textureSize = new Vector2Int(resolution, resolution);
             // 初始化 heightMap
             heightMap = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.RFloat);
             heightMap.enableRandomWrite = true;
-
             //采样模式改为双/三线性过滤
             heightMap.filterMode = FilterMode.Trilinear;  // 或者 Bilinear
             heightMap.wrapMode = TextureWrapMode.Clamp;
-
             heightMap.Create();
+
+            normalMap = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.ARGBFloat);
+            normalMap.enableRandomWrite = true;
+            normalMap.filterMode = FilterMode.Trilinear;
+            normalMap.wrapMode = TextureWrapMode.Clamp;
+            normalMap.Create();
 
             if (heightMapComputeShader != null)
             {
@@ -97,6 +109,7 @@ namespace Assets.Scripts
             oceanMaterial.DisableKeyword("MID");
             oceanMaterial.DisableKeyword("CLOSE");
             oceanMaterial.SetTexture("_ParticleHeightMap", heightMap);
+            oceanMaterial.SetTexture("_ParticleNormalMap", normalMap);
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
             // 1) 先生成高分辨率网格
@@ -117,24 +130,79 @@ namespace Assets.Scripts
         public void Update()
         {
             frameCnt++;
+
+            if (frameCnt <=1 || frameCnt % 1 == 0) // 每1帧更新一次边缘
+            {
+                Debug.Log("begin updating particles");
+                var converter = new SpectrumToParticlesConverter();
+                List<WaveParticle> edgeParticles = converter.GenerateParticlesFromSpectrum(
+                    spectrum: wavesSettings.spectrums[0],
+                    gravity: wavesSettings.g,
+                    waterDepth: wavesSettings.depth,
+                    fetchSize: wavesSettings.local.fetch,
+                    regionCenter: new Vector2(0, 0),
+                    regionSize: 150f
+                );
+                /*List<WaveParticle> edgeParticles = converter.GenerateParticlesFromSpectrumCDF(
+                    spectrum: wavesSettings.spectrums[0],
+                    gravity: 9.81f,
+                    waterDepth: 100f,
+                    regionCenter: new Vector2(0, 0),
+                    regionSize: 150f
+                );*/
+                //log所有边缘粒子的全部属性
+                /*foreach (var particle in edgeParticles)
+                {
+                    Debug.Log($"Edge particle p: {particle.position}");
+                    Debug.Log($"Edge particle d: {particle.direction}");
+                    Debug.Log($"Edge particle h: {particle.height}");
+                    Debug.Log($"Edge particle s: {particle.speed}");
+                    Debug.Log($"Edge particle r: {particle.radius}");
+                    Debug.Log($"Edge particle k: {particle.waveNumber}");
+                }
+                //log粒子个数
+                Debug.Log($"Generated {edgeParticles.Count} edge wave particles");*/
+                particles.AddRange(edgeParticles);
+            }
+            //log 粒子个数
+            //Debug.Log($"Total particles: {particles.Count}");
+
             if (heightMapDisplay != null)
             { heightMapDisplay.texture = heightMap; }
+            if (normalMapDisplay != null)
+            { normalMapDisplay.texture = normalMap; }
 
             float deltaTime = Time.deltaTime;
             float time = Time.time;
-            // 更新粒子位置和速度
-            for (int i = 0; i < particles.Count; i++)
+            // 更新粒子位置和速度并移除越界粒子
+            for (int i = particles.Count - 1; i >= 0; i--)
             {
-                particles[i].Update(deltaTime,planeSize,oceanSize);
-                //particles[i].UpdateParticle(time);
+                var p = particles[i];
+                p.Update(deltaTime, planeSize, oceanSize);
+
+                float worldRadius = p.radius * planeSize / oceanSize;
+                if (Mathf.Abs(p.position.x) > planeSize / 4 * 3 + worldRadius ||
+                    Mathf.Abs(p.position.y) > planeSize / 4 * 3 + worldRadius)
+                {
+                    particles.RemoveAt(i); // 销毁
+                }
             }
+            particleCnt = particles.Count();
             UpdateParticleBuffer();
             //Graphics.DrawMeshInstanced(ballMesh, 0, ballMaterial, GetMatrices(), particles.Count);
 
             // 发送到 ComputeShader
             int kernel = heightMapComputeShader.FindKernel("CSMain");
             heightMapComputeShader.SetTexture(kernel, "Result", heightMap);
-            heightMapComputeShader.SetBuffer(kernel, "Particles", particleBuffer);
+            heightMapComputeShader.SetTexture(kernel, "NormalResult", normalMap);
+            if (particleBuffer == null)
+            {
+                Debug.LogError("particleBuffer is null! Possibly because particles.Count == 0.");
+                return;
+            }
+            else {
+                heightMapComputeShader.SetBuffer(kernel, "Particles", particleBuffer);
+            }
             heightMapComputeShader.SetInts("TextureSize", textureSize.x, textureSize.y);
             heightMapComputeShader.SetInt("ParticleCount", particles.Count);
             heightMapComputeShader.SetFloat("time", Time.time);
@@ -158,7 +226,7 @@ namespace Assets.Scripts
             }
         }
 
-        List<WaveParticle> GenerateParticlesBySpectrum()
+        /*List<WaveParticle> GenerateParticlesBySpectrum()
         {
             
             var list = new List<WaveParticle>();
@@ -171,13 +239,13 @@ namespace Assets.Scripts
             Debug.Log($"kMin: {kMin}, kMax: {kMax}");
 
             // 测试 计算谱能量 S
-            /*for (float testk = 0.001f; testk < 0.1f; testk += 0.001f)
+            *//*for (float testk = 0.001f; testk < 0.1f; testk += 0.001f)
             {
                 float testS = JONSWAPSpectrum(testk, dir, windSpeed, gravity, waterDepth, fetchSize);
                 float testA = Mathf.Sqrt(2f * testS);
                 float testR = Mathf.PI / testk;
                 //Debug.Log($"testk: {testk}, testS: {testS}, testA: {testA}, testR: {testR}");
-            }*/
+            }*//*
 
             //TODO: K的采样，要在x,y方向完成
             //计算采样K范围：0.5Kp - 2.5 Kp
@@ -332,7 +400,7 @@ namespace Assets.Scripts
                 }
             }
             return list;
-        }
+        }*/
 
         /// <summary>
         /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
@@ -407,11 +475,11 @@ namespace Assets.Scripts
         public float JONSWAPGlennSpectrum(
             float k,
             Vector2 dir,
-            float g
+            WavesSettings ws
         )
         {
             // 转成角频率 ω = sqrt(g k)
-            float ω = Mathf.Sqrt(g * k);
+            float ω = Mathf.Sqrt(ws.g * k);
             float f = ω / (2f * Mathf.PI);
             float fp = 1 / Tp;
             //float γ = 3.3f;
@@ -426,8 +494,8 @@ namespace Assets.Scripts
 
             float μ = f > fp ? -2.5f : 5.0f;
             float sw = 16.0f * Mathf.Pow(f / fp, μ);
-            float U = Mathf.Sqrt(swellSpeed.x * swellSpeed.x + swellSpeed.y * swellSpeed.y);
-            Vector2  swellDir = new Vector2(swellSpeed.x / U, swellSpeed.y / U);
+            float U = Mathf.Sqrt(ws.swell.windSpeed.x * ws.swell.windSpeed.x + ws.swell.windSpeed.y * ws.swell.windSpeed.y);
+            Vector2  swellDir = new Vector2(ws.swell.windSpeed.x / U, ws.swell.windSpeed.y / U);
 
             //应用方向夹角修正
             float θ = Mathf.Atan2(dir.y, dir.x) - Mathf.Atan2(swellDir.y, swellDir.x);
@@ -437,7 +505,7 @@ namespace Assets.Scripts
             }
             float DirSpectrum = MyGammaDouble(sw + 1) / (2 * Mathf.Sqrt(Mathf.PI) * MyGammaDouble(sw + 0.5f)) * Mathf.Pow(Mathf.Cos(θ / 2), 2 * sw);
             //最后转换到sk
-            float Sk = Sjg * DirSpectrum / (4.0f * Mathf.PI) * Mathf.Sqrt(g / k) / k;
+            float Sk = Sjg * DirSpectrum / (4.0f * Mathf.PI) * Mathf.Sqrt(ws.g / k) / k;
             return (float)Sk;
         }
 
@@ -460,7 +528,7 @@ namespace Assets.Scripts
         /// <summary>
         /// windSpeed 含义：x,y 分别是风向分量 * 风速大小
         /// </summary>
-        List<WaveParticle> GenerateParticlesNew()
+        /*List<WaveParticle> GenerateParticlesNew()
         {
             float g = 9.81f;
             float windSp = windSpeed.magnitude;       // 风速大小
@@ -533,10 +601,10 @@ namespace Assets.Scripts
             }
             Debug.Log("Generated particles count: " + list.Count());
             return list;
-        }
+        }*/
 
 
-        List<WaveParticle> GenerateParticles(int count, float windSpeed) //JONSWAP 适用 风速: 3m/s-20m/s
+        /*List<WaveParticle> GenerateParticles(int count, float windSpeed) //JONSWAP 适用 风速: 3m/s-20m/s
         {
             float g = 9.81f;
             float omegaP = 0.84f * g / windSpeed;
@@ -569,7 +637,7 @@ namespace Assets.Scripts
 
             }
             return list;
-        }
+        }*/
 
         /// <summary>
         /// 带深度修正的 JONSWAP 频谱
@@ -614,80 +682,23 @@ namespace Assets.Scripts
                 return 1.0f;
         }
 
-
-        List<WaveParticle> GenerateParticlesTest(int count, float windSpeed)
-        {
-            float g = 9.81f;
-            float omegaP = 0.84f * g / windSpeed;
-            float alpha = 0.076f * Mathf.Pow(windSpeed * windSpeed / g, 0.22f);
-            float gamma = 3.3f;
-
-            float omegaMin = omegaP * 0.2f;
-            float omegaMax = omegaP * 5f;
-            float dOmega = (omegaMax - omegaMin) / count;
-
-            var list = new List<WaveParticle>(count);
-            for (int i = 0; i < count; i++)
-            {
-                float ω = omegaMin + (i + 0.5f) * dOmega;
-                float S = JONSWAP(ω, omegaP, alpha, gamma, g, waterDepth);
-                float A = Mathf.Sqrt(2 * S * dOmega);
-                Debug.Log("高度：" + A);
-                // 构造粒子
-                var p = new WaveParticle();
-                p.position = UnityEngine.Random.insideUnitCircle * 5f;
-                p.direction = UnityEngine.Random.insideUnitCircle.normalized;
-                p.baseHeight = A;
-                p.phase = UnityEngine.Random.value * Mathf.PI * 2f;
-                p.angularFrequency = ω;
-                p.waveNumber = ω * ω / g;
-                p.radius = 2 * Mathf.PI / p.waveNumber * 0.25f; //TODO： radius与波长的关系
-                p.speed = Mathf.Sqrt(g / p.waveNumber) ;
-                list.Add(p);
-            }
-            return list;
-        }
-
         void UpdateParticleBuffer()
         {
             Vector4[] particleData = new Vector4[particles.Count];
             Vector4[] particleData2 = new Vector4[particles.Count];
+            Debug.Log("particle count before update:" + particles.Count);
             for (int i = 0; i < particles.Count; i++)
             {
                 particleData[i] = particles[i].ToVector4();
             }
-
-            particleBuffer.SetData(particleData);
-            //instanceMaterial.SetBuffer("_ParticleBuffer", particleBuffer);
-
-            //打印粒子信息
-            Vector4[] debugData = new Vector4[particles.Count];
-            particleBuffer.GetData(debugData);
-            int p_cnt = 0;
-            int p_cnt2 = 0;
-            float highest = 0.0f;
-            for (int i = 0; i < debugData.Count(); i++)
+            Debug.Log("particledata count before update:" + particleData.Count());
+            particleBuffer = new ComputeBuffer(particles.Count, sizeof(float) * 4);
+            if (particles.Count == 0)
             {
-                if (debugData[i].z < 0.1)
-                {
-                    continue;
-                }
-                if (debugData[i].z > highest)
-                {
-                    highest = debugData[i].z;
-                }
-                if (debugData[i].z > 0.1)
-                {
-                    if (debugData[i].w > oceanSize / 10)
-                    {
-                        p_cnt2++;
-                    }
-                }
-                //Debug.Log($"Particle {i}: {debugData[i]}");
-                p_cnt++;
+                Debug.LogWarning("No particles to update, skipping buffer update.");
+                return;
             }
-            //Debug.Log($"Total big particles: {p_cnt2}");
-            //Debug.Log($"Highest particle height: {highest}");
+            particleBuffer.SetData(particleData);
 
         }
         Matrix4x4[] GetMatrices()

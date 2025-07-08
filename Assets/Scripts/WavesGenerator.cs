@@ -5,8 +5,8 @@ using UnityEngine.Rendering;
 public class WavesGenerator : MonoBehaviour
 {
     public WavesCascade cascade0;
-    public WavesCascade cascade1;
-    public WavesCascade cascade2;
+    //public WavesCascade cascade1;
+    //public WavesCascade cascade2;
 
     // must be a power of 2
     [SerializeField]
