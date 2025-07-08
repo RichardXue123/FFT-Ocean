@@ -27,13 +27,10 @@ namespace Assets.Scripts
         /// <param name="sampleCount">在区域内采样的波数数量</param>
         /// <returns>生成的波粒子列表</returns>
         public List<WaveParticle> GenerateParticlesFromSpectrum(
-            SpectrumSettings spectrum,
-            float gravity,
-            float waterDepth,
-            float fetchSize,
+            WavesSettings ws,
             Vector2 regionCenter,
-            float regionSize,
-            int sampleCount = 100)
+            Vector2 regionSize,
+            int sampleCount = 10)
         {
             List<WaveParticle> particles = new List<WaveParticle>();
 
@@ -45,13 +42,13 @@ namespace Assets.Scripts
                 Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                 // 2. 采样波长 / 波数
-                float omega = Random.Range(spectrum.peakOmega * 0.5f, spectrum.peakOmega * 2.5f);
-                float k = omega * omega / gravity;
+                float omega = Random.Range(ws.spectrums[0].peakOmega * 0.5f, ws.spectrums[0].peakOmega * 2.5f);
+                float k = omega * omega / ws.g;
                 float radius = Mathf.PI / k;
-                float phaseSpeed = Mathf.Sqrt(gravity / k);
+                float phaseSpeed = Mathf.Sqrt(ws.g / k);
 
                 // 3. 计算振幅：A = sqrt(2 * S(k))
-                float S = JONSWAPSpectrum(omega,spectrum.peakOmega,dir,windSpeed,gravity,waterDepth,fetchSize);
+                float S = JONSWAPSpectrum(omega,ws.spectrums[0].peakOmega,dir,windSpeed,ws.g,ws.depth,ws.local.fetch);
                 float A = Mathf.Sqrt(2f * S);
 
                 // 4. 在边缘区域分布（仅边框带内）
@@ -84,7 +81,7 @@ namespace Assets.Scripts
             float gravity,
             float waterDepth,
             Vector2 regionCenter,
-            float regionSize,
+            Vector2 regionSize,
             int sampleCount = 100)
         {
             List<WaveParticle> particles = new List<WaveParticle>();
@@ -173,7 +170,7 @@ namespace Assets.Scripts
             Vector2 dir,
             Vector2 windVec,
             float g,
-            float depth,
+            float depth,  
             float fetch
         )
         {
@@ -225,22 +222,25 @@ namespace Assets.Scripts
         }
 
         /// <summary>
-        /// 从正方形区域边缘采样一个粒子位置，用于实现边界粒子生成。
+        /// 从长方形区域边缘采样一个粒子位置，用于实现边界粒子生成。
         /// </summary>
-        Vector2 SamplePositionOnRegionEdge(Vector2 center, float size)
+        Vector2 SamplePositionOnRegionEdge(Vector2 center, Vector2 size)
         {
-            float half = size * 0.5f;
-            float t = Random.value;
-            float u = Random.Range(-half, half);
+            float halfX = size.x * 0.5f;
+            float halfY = size.y * 0.5f;
+            // u分别控制在长宽范围
+            float uX = Random.Range(-halfX, halfX);
+            float uY = Random.Range(-halfY, halfY);
 
             switch (Random.Range(0, 4))
             {
-                case 0: return center + new Vector2(-half, u);  // Left
-                case 1: return center + new Vector2(half, u);   // Right
-                case 2: return center + new Vector2(u, -half);  // Bottom
-                case 3: return center + new Vector2(u, half);   // Top
+                case 0: return center + new Vector2(-halfX, uY);  // Left
+                case 1: return center + new Vector2(halfX, uY);   // Right
+                case 2: return center + new Vector2(uX, -halfY);  // Bottom
+                case 3: return center + new Vector2(uX, halfY);   // Top
             }
             return center;
         }
+
     }
 }

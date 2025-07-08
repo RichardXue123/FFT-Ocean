@@ -213,7 +213,7 @@ MonoBehaviour:
   frameCnt: 0
   particleCnt: 0
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  sampleStep: 20
+  sampleCount: 100
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -784,7 +784,7 @@ MonoBehaviour:
   frameCnt: 0
   particleCnt: 0
   wavesSettings: {fileID: 0}
-  sampleStep: 100
+  sampleCount: 100
   Tp: 10
   Hs: 3
   oceanSize: 100
