@@ -16,8 +16,20 @@
         _FoamBiasLOD0("Foam Bias LOD0", Range(0,7)) = 1
         _FoamScale("Foam Scale", Range(0,20)) = 1
         _ContactFoam("Contact Foam", Range(0,1)) = 1
-        _ParticleHeightMap("Wave Particle Height Map", 2D) = "black" {} //加入新的波粒子高度图
-        _ParticleNormalMap("Wave Particle Height Map", 2D) = "black" {} //加入新的波粒子法线图
+
+        _RegionCount("Region Count", Int) = 1
+        _ParticleHeightMap0("Wave Particle Height Map 0", 2D) = "black" {}
+        _ParticleNormalMap0("Wave Particle Normal Map 0", 2D) = "black" {}
+        _ParticleHeightMap1("Wave Particle Height Map 1", 2D) = "black" {}
+        _ParticleNormalMap1("Wave Particle Normal Map 1", 2D) = "black" {}
+        _ParticleHeightMap2("Wave Particle Height Map 2", 2D) = "black" {}
+        _ParticleNormalMap2("Wave Particle Normal Map 2", 2D) = "black" {}
+        _RegionCenter0("Region Center 0", Vector) = (0,0,0,0)
+        _RegionSize0("Region Size 0", Vector) = (0,0,0,0)
+        _RegionCenter1("Region Center 1", Vector) = (0,0,0,0)
+        _RegionSize1("Region Size 1", Vector) = (0,0,0,0)
+        _RegionCenter2("Region Center 2", Vector) = (0,0,0,0)
+        _RegionSize2("Region Size 2", Vector) = (0,0,0,0)
 
 
         [Header(Cascade 0)]
@@ -31,7 +43,6 @@
         LOD 200
 
         CGPROGRAM
-        #pragma multi_compile _ MID CLOSE
         #pragma surface surf Standard fullforwardshadows vertex:vert addshadow
         #pragma target 4.0
 
@@ -51,15 +62,45 @@
         sampler2D _Turbulence_c0;
 
         //波粒子高度图参数
-        sampler2D _ParticleHeightMap;
+        int _RegionCount;
+        sampler2D _ParticleHeightMap0, _ParticleHeightMap1, _ParticleHeightMap2;
+        sampler2D _ParticleNormalMap0, _ParticleNormalMap1, _ParticleNormalMap2;
+        float4 _RegionCenter0, _RegionCenter1, _RegionCenter2;
+        float4 _RegionSize0, _RegionSize1, _RegionSize2;
         float _ParticleHeightScale;
-
-        sampler2D _ParticleNormalMap;
 
         float LengthScale0;
         float _LOD_scale = 1.0f;
         float _SSSBase;
         float _SSSScale;
+
+        // Utility function: 判断点是否在某个region
+        bool InRegion(float2 pos, float4 center, float4 size)
+        {
+            float2 halfSize = size.xy * 0.5;
+            float2 min = center.xy - halfSize;
+            float2 max = center.xy + halfSize;
+            return (pos.x >= min.x && pos.x <= max.x && pos.y >= min.y && pos.y <= max.y);
+        }
+
+        // 返回region编号，并输出region uv
+        int GetRegionIndex(float2 pos, out float2 regionUV)
+        {
+            if (_RegionCount > 0 && InRegion(pos, _RegionCenter0, _RegionSize0)) {
+                regionUV = (pos - _RegionCenter0.xy) / _RegionSize0.xy + 0.5;
+                return 0;
+            }
+            if (_RegionCount > 1 && InRegion(pos, _RegionCenter1, _RegionSize1)) {
+                regionUV = (pos - _RegionCenter1.xy) / _RegionSize1.xy + 0.5;
+                return 1;
+            }
+            if (_RegionCount > 2 && InRegion(pos, _RegionCenter2, _RegionSize2)) {
+                regionUV = (pos - _RegionCenter2.xy) / _RegionSize2.xy + 0.5;
+                return 2;
+            }
+            regionUV = float2(0, 0);
+            return -1;
+        }
 
         void vert(inout appdata_full v, out Input o)
         {
@@ -74,19 +115,26 @@
             float3 displacement = 0;
 
             float2 worldPosXZ = worldUV;
-            // Mask 中心 100x100 世界坐标区域（即 x,z ∈ [-50,50]）
-            if (abs(worldPosXZ.x) < 50 && abs(worldPosXZ.y) < 50)
-            {
-                float2 particleUV = worldUV / 100 + 0.5; // 映射到 [0,1] 范围
-                float height = tex2Dlod(_ParticleHeightMap, float4(particleUV, 0, 0)).r;
-                displacement += float3(0, height * _ParticleHeightScale, 0);
 
-                // ✅ 设置 lodScales 用于 SSS 效果计算
+            float2 regionUV;
+            int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
+            if (regionIdx == 0) {
+                float height = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r;
+                displacement += float3(0, height * _ParticleHeightScale, 0);
                 o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
             }
-            else
-            {
-                displacement += tex2Dlod(_Displacement_c0, worldUV / LengthScale0);
+            else if (regionIdx == 1) {
+                float height = tex2Dlod(_ParticleHeightMap1, float4(regionUV, 0, 0)).r;
+                displacement += float3(0, height * _ParticleHeightScale, 0);
+                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
+            }
+            else if (regionIdx == 2) {
+                float height = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r;
+                displacement += float3(0, height * _ParticleHeightScale, 0);
+                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
+            }
+            else {
+                displacement += tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0));
                 float largeWavesBias = displacement.y;
                 o.lodScales = float4(0, 0, 1, max(displacement.y - largeWavesBias * 0.8 - _SSSBase, 0) / _SSSScale);
             }
@@ -116,57 +164,26 @@
         void surf(Input IN, inout SurfaceOutputStandard o)
         {
             float2 worldPosXZ = IN.worldUV;
-
-            bool inParticleZone = abs(worldPosXZ.x) < 50 && abs(worldPosXZ.y) < 50;
+            float2 regionUV;
+            int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
 
             float3 worldNormal;
 
-            if (abs(worldPosXZ.x) < 50 && abs(worldPosXZ.y) < 50)
-            {
-                // 1. 映射 UV
-                float2 uv = worldPosXZ / 100 + 0.5;
-
-                // 2. 贴图步长
-                float texelSize = 1.0 / 512.0;
-
-                // 3. 采样上下左右四个点
-                float hC = tex2D(_ParticleHeightMap, uv).r;
-                float hL = tex2D(_ParticleHeightMap, uv + float2(-texelSize, 0)).r;
-                float hR = tex2D(_ParticleHeightMap, uv + float2(texelSize, 0)).r;
-                float hD = tex2D(_ParticleHeightMap, uv + float2(0, -texelSize)).r;
-                float hU = tex2D(_ParticleHeightMap, uv + float2(0, texelSize)).r;
-
-                // 4. 计算 dx, dz 方向向量
-                float particleRegionWidth = 100; // 你的实际区域宽度
-                float3 dx = float3(2 * texelSize * particleRegionWidth, hR - hL, 0);
-                float3 dz = float3(0, hU - hD, 2 * texelSize * particleRegionWidth);
-
-                // 5. 交叉乘得法线
-                float3 normal = normalize(cross(dz, dx));
-                //float3 normal = tex2D(_ParticleNormalMap, uv).xyz;
-                //float3 normal = tex2D(_ParticleNormalMap, uv).xyz * 2 - 1;
-                worldNormal = normal;
+            if (regionIdx == 0) {
+                // 推荐用法线贴图，如果你生成了它
+                worldNormal = tex2D(_ParticleNormalMap0, regionUV).xyz * 2 - 1;
             }
-            else
-            {
-                // 非粒子区域：使用 FFT 法线贴图
-                float4 derivatives = tex2D(_Derivatives_c0, IN.worldUV / LengthScale0);
+            else if (regionIdx == 1) {
+                worldNormal = tex2D(_ParticleNormalMap1, regionUV).xyz * 2 - 1;
+            }
+            else if (regionIdx == 2) {
+                worldNormal = tex2D(_ParticleNormalMap2, regionUV).xyz * 2 - 1;
+            }
+            else {
+                // 非region区域：用原有FFT逻辑
+                float4 derivatives = tex2D(_Derivatives_c0, worldPosXZ / LengthScale0);
                 float2 slope = float2(derivatives.x / (1 + derivatives.z), derivatives.y / (1 + derivatives.w));
                 worldNormal = normalize(float3(-slope.x, 1, -slope.y));
-
-                //float2 uv = IN.worldUV / LengthScale0;
-                //float texelSize = 1.0 / 512.0; // 如果你的 FFT 贴图是 512x512
-
-                //float hC = tex2D(_Displacement_c0, uv).y;
-                //float hL = tex2D(_Displacement_c0, uv + float2(-texelSize, 0)).y;
-                //float hR = tex2D(_Displacement_c0, uv + float2(texelSize, 0)).y;
-                //float hD = tex2D(_Displacement_c0, uv + float2(0, -texelSize)).y;
-                //float hU = tex2D(_Displacement_c0, uv + float2(0, texelSize)).y;
-
-                //float3 dx = float3(2 * texelSize * LengthScale0, hR - hL, 0);
-                //float3 dz = float3(0, hU - hD, 2 * texelSize * LengthScale0);
-
-                //worldNormal = normalize(cross(dz, dx));
             }
 
             o.Normal = WorldToTangentNormalVector(IN, worldNormal);

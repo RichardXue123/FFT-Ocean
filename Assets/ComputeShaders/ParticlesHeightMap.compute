@@ -1,14 +1,12 @@
 ﻿#pragma kernel CSMain
-// 波粒子法线贴图
 RWTexture2D<float> Result : register(u0);
-RWTexture2D<float4> NormalResult : register(u1); // 新增
+RWTexture2D<float4> NormalResult : register(u1);
 StructuredBuffer<float4> Particles : register(t0);
 
 int ParticleCount;
-float time;
 int2 TextureSize;
-float OceanSize;
-float PlaneSize;
+float2 RegionCenter;
+float2 RegionSize;
 
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
@@ -16,17 +14,16 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (id.x >= (uint)TextureSize.x || id.y >= (uint)TextureSize.y)
         return;
 
-    float2 uv = float2(id.x, id.y) / float2(TextureSize);
-    float2 worldPos = (uv - 0.5f) * OceanSize;
+    float2 uv = float2(id.x, id.y) / float2(TextureSize);    // [0,1]
+    float2 worldPos = RegionCenter + (uv - 0.5f) * RegionSize;
 
     float height = 0.0f;
 
-    // --------- 1. 先算高度 ----------
     for (int i = 0; i < ParticleCount; i++)
     {
-        float2 particleWorldPos = Particles[i].xy / PlaneSize * OceanSize;
+        float2 particleWorldPos = Particles[i].xy;  // 粒子坐标必须和 region 匹配
         float particleHeight = Particles[i].z;
-        float radius = Particles[i].w;
+        float radius = max(Particles[i].w, 1e-2f); // 防止为0
 
         float2 delta = worldPos - particleWorldPos;
         float dist = length(delta);
@@ -38,17 +35,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // --------- 2. 再计算中心像素的法线 ----------
-    // 使用中心差分采样法，±dx, ±dy各采一次
-    float dx = OceanSize / TextureSize.x;
-    float dy = OceanSize / TextureSize.y;
+    // 中心差分采样法
+    float dx = RegionSize.x / TextureSize.x;
+    float dy = RegionSize.y / TextureSize.y;
 
-    // 采样右
     float heightR = 0.0f;
     float2 worldPosR = worldPos + float2(dx, 0);
     for (int i = 0; i < ParticleCount; i++)
     {
-        float2 particleWorldPos = Particles[i].xy / PlaneSize * OceanSize;
+        float2 particleWorldPos = Particles[i].xy;
         float particleHeight = Particles[i].z;
         float radius = Particles[i].w;
         float2 delta = worldPosR - particleWorldPos;
@@ -60,12 +55,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             heightR += particleHeight * weight;
         }
     }
-    // 采样上
     float heightU = 0.0f;
     float2 worldPosU = worldPos + float2(0, dy);
     for (int i = 0; i < ParticleCount; i++)
     {
-        float2 particleWorldPos = Particles[i].xy / PlaneSize * OceanSize;
+        float2 particleWorldPos = Particles[i].xy;
         float particleHeight = Particles[i].z;
         float radius = Particles[i].w;
         float2 delta = worldPosU - particleWorldPos;
@@ -78,13 +72,10 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         }
     }
 
-    // 3. 法线（y朝上）
     float3 dxVec = float3(dx, heightR - height, 0);
     float3 dzVec = float3(0, heightU - height, dy);
     float3 normal = normalize(cross(dzVec, dxVec));
 
-    // 输出为float4，xyz=normal，w=1
     Result[id.xy] = height;
-    //NormalResult[id.xy] = float4(normal, 1.0);
     NormalResult[id.xy] = float4(normal * 0.5 + 0.5, 1.0);
 }
