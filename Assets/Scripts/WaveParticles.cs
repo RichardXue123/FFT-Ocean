@@ -103,9 +103,9 @@ namespace Assets.Scripts
         {
             return new Vector4(position.x, position.y, height, radius);
         }
-        public Vector4 ToVector4Extra()
+        public Vector2 ToVector2()
         {
-            return new Vector4(phase, angularFrequency, 0f, 0f);
+            return new Vector2(direction.x, direction.y);
         }
     }
 }
