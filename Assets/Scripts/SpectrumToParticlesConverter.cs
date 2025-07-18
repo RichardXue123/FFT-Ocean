@@ -84,6 +84,64 @@ namespace Assets.Scripts
             return particles;
         }
 
+        public List<WaveParticle> GenerateParticlesFromSpectrum(
+            WavesSettings ws,
+            Vector2 regionCenter,
+            Vector2 regionSize,
+            int N_omega = 16, // 频率采样数
+            int N_theta = 24)  // 方向采样数
+        {
+            List<WaveParticle> particles = new List<WaveParticle>();
+
+            // 频率采样区间，主峰附近
+            float omega_p = ws.spectrums[0].peakOmega;
+            float omega_min = omega_p * 0.5f;
+            float omega_max = omega_p * 2.5f;
+            float delta_omega = (omega_max - omega_min) / N_omega;
+            float delta_theta = 2 * Mathf.PI / N_theta;
+
+            for (int iw = 0; iw < N_omega; iw++)
+            {
+                float omega = omega_min + delta_omega * (iw + 0.5f);
+                float k = omega * omega / ws.g;
+                float radius = Mathf.PI / k;
+                float phaseSpeed = Mathf.Sqrt(ws.g / k);
+
+                for (int itheta = 0; itheta < N_theta; itheta++)
+                {
+                    float theta = delta_theta * (itheta + 0.5f);
+                    Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
+
+                    // 谱采样，带宽加权（能量归一化）
+                    float S = JONSWAPSpectrum(omega, omega_p, dir, ws.local.windSpeed, ws.g, ws.depth, ws.local.fetch);
+                    if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
+
+                    float amplitude = Mathf.Sqrt(2f * S * delta_omega * delta_theta); // 归一化的振幅
+
+                    // 边缘采样一个位置（方向可选对应主传播边，也可随机）
+                    Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
+
+                    var particle = new WaveParticle
+                    {
+                        position = pos,
+                        direction = dir.normalized,
+                        height = amplitude,
+                        baseHeight = amplitude,
+                        phase = 0f, // 可加随机相位扰动
+                        angularFrequency = omega,
+                        waveNumber = k,
+                        radius = radius,
+                        speed = phaseSpeed
+                    };
+                    particles.Add(particle);
+
+                    // 可选：也加入反向相位粒子
+                    particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
+                }
+            }
+            return particles;
+        }
+
 
         /// <summary>
         /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
