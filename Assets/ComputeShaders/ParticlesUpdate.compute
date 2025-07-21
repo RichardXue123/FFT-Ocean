@@ -1,0 +1,159 @@
+﻿// ParticlesUpdate.compute
+// --------------------- Kernel ---------------------
+#pragma kernel UpdateParticles
+struct WaveParticleGPU 
+{
+    float2 position;
+    float2 direction;
+    float height;
+    float speed;
+    float radius;
+    float k;
+    float omega;
+    uint regionId;
+};
+
+struct RegionParams {
+    float2 center;
+    float2 size;
+};
+
+RWStructuredBuffer<WaveParticleGPU> Particles;
+StructuredBuffer<RegionParams> Regions;
+
+cbuffer Params
+{
+    uint ParticleCount;
+    uint RegionCount;
+    // 采样分辨率
+    uint N_omega;     // 频率采样数
+    uint N_theta;     // 方向采样数
+
+    // 谱参数
+    float g;
+    float omega_p;
+    float2 windVec;
+    float depth;
+    float fetch;
+}
+
+// 伪随机数生成（简化，实际可换为更高质量hash）
+float rand(uint seed) {
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return frac(seed * 1e-4);
+}
+
+// --------- JONSWAPSpectrum 公式 ---------
+
+float JONSWAPSpectrum(
+    float omega,
+    float omega_p,
+    float2 dir,
+    float2 windVec,
+    float g,
+    float depth,
+    float fetch)
+{
+    float k = omega * omega / g;
+    float U = length(windVec);
+    float alpha = 0.076 * pow((U * U) / (g * fetch), 0.22);
+    float gamma = 3.3;
+    float sigma = (omega <= omega_p) ? 0.07 : 0.09;
+    float r = exp(-pow((omega - omega_p), 2.0) / (2.0 * sigma * sigma * omega_p * omega_p));
+    float S0 = (alpha * g * g) / pow(omega, 5.0)
+        * exp(-1.25 * pow(omega_p / omega, 4.0))
+        * pow(gamma, r);
+    // 有限深度修正
+    float omega_h = omega * sqrt(depth / g);
+    float TMA = (omega_h <= 1.0) ? 0.5 * omega_h * omega_h :
+        ((omega_h < 2.0) ? (1.0 - 0.5 * pow(2.0 - omega_h, 2.0)) : 1.0);
+    float S_deep = S0 * TMA;
+    // 方向修正
+    float angle = atan2(dir.y, dir.x) - atan2(windVec.y, windVec.x);
+    float mu = (omega <= omega_p) ? 5.0 : -2.5;
+    float n = 16.0 * pow(omega / omega_p, mu);
+    float cosHalfTheta = cos(angle / 2.0);
+    cosHalfTheta = clamp(cosHalfTheta, 0.0, 1.0);
+    float D = ((cosHalfTheta == 0.0 && n != 0.0) ? 0.0 : (n + 1.0) / (2.0 * 3.1415926) * pow(cosHalfTheta, n));
+    float domega_dk = 0.5 * sqrt(g / k);
+    return S_deep * D * domega_dk;
+}
+
+[numthreads(256, 1, 1)]
+void UpdateParticles(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= ParticleCount) return;
+
+    // 1. 分配region
+    uint regionId = idx % RegionCount;
+    RegionParams region = Regions[regionId];
+    float2 center = region.center;
+    float2 size = region.size;
+
+    // 2. 映射粒子索引到二维采样格 (iw, itheta)
+    // 保证每个region里采样密度均匀（可按总数分块）
+    uint samplesPerRegion = (N_omega * N_theta);
+    uint localIdx = idx / RegionCount;
+    uint iw = localIdx / N_theta;
+    uint itheta = localIdx % N_theta;
+
+    //if (iw >= N_omega) {
+    //    // 多余slot，标dead
+    //    WaveParticleGPU p;
+    //    p.alive = 0;
+    //    Particles[idx] = p;
+    //    return;
+    //}
+
+    // 3. 频率、方向采样
+    float omega_min = omega_p * 0.5;
+    float omega_max = omega_p * 2.5;
+    float delta_omega = (omega_max - omega_min) / N_omega;
+    float delta_theta = 6.2831853f / N_theta;
+
+    float omega = omega_min + delta_omega * (iw + 0.5f);
+    float k = omega * omega / g;
+    float radius = 3.1415926f / k;
+    float phaseSpeed = sqrt(g / k);
+
+    float theta = delta_theta * (itheta + 0.5f);
+    float2 dir = float2(cos(theta), sin(theta));
+
+    // 4. 能量谱采样
+    float S = JONSWAPSpectrum(omega, omega_p, dir, windVec, g, depth, fetch); // 见下
+    float amplitude = 0;
+    if (!isnan(S) && !isinf(S) && S > 0)
+        amplitude = sqrt(2.0f * S * delta_omega * delta_theta);
+
+    // 5. 边缘采样位置（等价于C# SamplePositionOnRegionEdge）
+    // 可用idx或rand(localIdx)选边
+    float rx = rand(idx * 17 + 42);
+    float ry = rand(idx * 13 + 99);
+    float2 pos;
+    uint edge = (uint)(rand(idx * 23 + 7) * 4.0f);
+    float halfX = size.x * 0.5f, halfY = size.y * 0.5f;
+    if (edge == 0) pos = center + float2(-halfX, (ry - 0.5f) * size.y); // Left
+    else if (edge == 1) pos = center + float2(halfX, (ry - 0.5f) * size.y); // Right
+    else if (edge == 2) pos = center + float2((rx - 0.5f) * size.x, -halfY); // Bottom
+    else                pos = center + float2((rx - 0.5f) * size.x, halfY); // Top
+
+    // 6. 生成粒子
+    WaveParticleGPU p;
+    p.position = pos;
+    p.direction = normalize(dir);
+    p.height = amplitude;
+    p.speed = phaseSpeed;
+    p.radius = radius;
+    p.k = k;
+    p.omega = omega;
+    p.regionId = regionId;
+
+    Particles[idx] = p;
+}
+
+

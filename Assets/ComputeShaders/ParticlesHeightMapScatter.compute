@@ -1,0 +1,86 @@
+﻿// ParticlesHeightMapScatter.compute
+// --------------------- Kernel ---------------------
+#pragma kernel ParticlesHeightMapScatter
+struct WaveParticleGPU
+{
+    float2 position;
+    float2 direction;
+    float height;
+    float speed;
+    float radius;
+    float k;
+    float omega;
+    uint regionId;
+};
+
+struct RegionParams
+{
+    float2 center;
+    float2 size;
+};
+
+cbuffer Params
+{
+    uint RegionCount;
+    uint ParticleCount;
+    int2 TextureSize;
+}
+
+StructuredBuffer<WaveParticleGPU> Particles;
+StructuredBuffer<RegionParams> Regions;
+
+
+RWTexture2D<float> Result;
+RWTexture2D<float4> NormalResult;
+RWTexture2D<float2> DisplacementResult;
+
+[numthreads(256, 1, 1)]
+void ParticlesHeightMapScatter(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= ParticleCount) return;
+
+    WaveParticleGPU p = Particles[idx];
+
+    uint regionId = p.regionId;
+    RegionParams region = Regions[regionId];
+
+    // 1. 粒子的影响像素范围（在本region的高度图）
+    float2 halfSize = region.size * 0.5f;
+    float2 pixSize = region.size / float2(TextureSize);
+    // 计算粒子圆的包围盒对应的像素范围
+    float2 rel = p.position - (region.center - halfSize); // region左下角为(0,0)
+    int2 minPix = int2(max(0, floor((rel - p.radius) / pixSize)));
+    int2 maxPix = int2(min(TextureSize - 1, ceil((rel + p.radius) / pixSize)));
+
+    for (int ix = minPix.x; ix <= maxPix.x; ix++)
+        for (int iy = minPix.y; iy <= maxPix.y; iy++)
+        {
+            // 2. 像素中心世界坐标
+            float2 uv = (float2(ix, iy) + 0.5f) / float2(TextureSize);
+            float2 worldPos = region.center + (uv - 0.5f) * region.size;
+
+            float2 delta = worldPos - p.position;
+            float dist = length(delta);
+
+            if (dist < p.radius)
+            {
+                float t = saturate(dist / p.radius);
+                float weight = cos(t * 3.1415926f) * 0.5f + 0.5f;
+
+                // 高度分量（atomic加）
+                //InterlockedAdd(Result[int2(ix, iy)], p.height * weight);
+                Result[int2(ix, iy)] += p.height * weight;
+
+                // 横向扰动
+                float2 dir = normalize(p.direction);
+                float u = dot(dir, delta);
+                float sinTerm = -sin(3.1415926f * u / p.radius);
+                float2 displacement = sinTerm * weight * dir;
+                //InterlockedAdd(DisplacementResult[int2(ix, iy)].x, displacement.x);
+                //InterlockedAdd(DisplacementResult[int2(ix, iy)].y, displacement.y);
+                DisplacementResult[int2(ix, iy)] += displacement;
+                // 法线分量可在后处理或直接这里中心差分/累加
+            }
+        }
+}

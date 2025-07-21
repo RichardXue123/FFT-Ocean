@@ -205,7 +205,7 @@ Material:
     - _OcclusionStrength: 1
     - _Parallax: 0.02
     - _ParticleHeightScale: 1
-    - _RegionCount: 2
+    - _RegionCount: 1
     - _Roughness: 0
     - _RoughnessScale: 0
     - _SSSBase: -0.77

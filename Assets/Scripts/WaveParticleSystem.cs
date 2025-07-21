@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -12,6 +13,7 @@ namespace Assets.Scripts
         //粒子数组
         //private List<WaveParticle> particles;
         private ComputeBuffer particleBuffer;
+        private ComputeBuffer regionBuffer;
         //private ComputeBuffer particleBuffer2;
         public int frameCnt;
         public int particleCnt;
@@ -50,8 +52,12 @@ namespace Assets.Scripts
         [SerializeField] private ComputeBuffer[] particleDirBuffers;
         [SerializeField] public int resolution = 256;
         [SerializeField] public Vector2Int textureSize = new Vector2Int(256, 256);
+        [SerializeField] public int N_omega = 8;
+        [SerializeField] public int N_theta = 16;
         //[SerializeField] float planeSize = 10f;
 
+        public ComputeShader particlesUpdateShader;    // 粒子生命周期compute
+        public ComputeShader particlesHeightMapScatterShader;     // 粒子scatter合成compute
         [SerializeField] Material oceanMaterial;
 
         MeshUtils.Element OceanCenter;
@@ -68,6 +74,23 @@ namespace Assets.Scripts
         771.32342877765313, -176.61502916214059, 12.507343278686905,
         -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7};
 
+        struct WaveParticleGPU
+        {
+            Vector2 position;
+            Vector2 direction;
+            float height;
+            float speed;
+            float radius;
+            float k;
+            float omega;
+            uint regionId;
+        };
+        struct RegionParams
+        {
+            Vector2 center;
+            Vector2 size;
+        };
+
         void Awake()
         {
             //particles = new List<WaveParticle>();
@@ -77,6 +100,11 @@ namespace Assets.Scripts
         public void Start()
         {
             particleCnt = 0;
+            particleCnt = waveParticleRegions.Count * N_omega * N_theta; // 计算/传递粒子总数
+            particleBuffer = new ComputeBuffer(particleCnt, Marshal.SizeOf(typeof(WaveParticleGPU)));
+
+            // 创建区域Buffer
+            regionBuffer = new ComputeBuffer(particleCnt, Marshal.SizeOf(typeof(RegionParams)));
             Debug.Log("WaveParticleSystem Start called!");
             //InitializeSimpleWave();
             //particles.Clear();
@@ -147,26 +175,53 @@ namespace Assets.Scripts
         public void Update()
         {
             frameCnt++;
-
-            if (frameCnt <=1 || frameCnt % 1 == 0) // 每1帧更新一次边缘
-            {
-
-            }
             //Debug.Log("begin updating particles");
             var converter = new SpectrumToParticlesConverter();
             float deltaTime = Time.deltaTime;
             float time = Time.time;
-            particleCnt = 0;
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
-            for (int i = 0; i < waveParticleRegions.Count; i++)
+            // -----------------
+            // 1. 推进所有粒子
+            int updateKernel = particlesUpdateShader.FindKernel("UpdateParticles");
+            particlesUpdateShader.SetBuffer(updateKernel, "Particles", particleBuffer);
+            particlesUpdateShader.SetBuffer(updateKernel, "Regions", regionBuffer);
+            // Set deltaTime/time/等参数
+            particlesUpdateShader.Dispatch(updateKernel, Mathf.CeilToInt((float)particleCnt / 256f), 1, 1);
+
+            // 2. 每region分别合成高度图
+            int scatterKernel = particlesHeightMapScatterShader.FindKernel("ParticlesHeightMapScatter");
+
+            for (int regionIdx = 0; regionIdx < waveParticleRegions.Count; regionIdx++)
+            {
+                // 绑定Buffer和RT
+                particlesHeightMapScatterShader.SetBuffer(scatterKernel, "Particles", particleBuffer);
+                particlesHeightMapScatterShader.SetBuffer(scatterKernel, "Regions", regionBuffer);
+
+                particlesHeightMapScatterShader.SetTexture(scatterKernel, "Result", heightMap[regionIdx]);
+                particlesHeightMapScatterShader.SetTexture(scatterKernel, "NormalResult", normalMap[regionIdx]);
+                particlesHeightMapScatterShader.SetTexture(scatterKernel, "DisplacementResult", displacementMap[regionIdx]);
+
+                // 当前region参数
+                particlesHeightMapScatterShader.SetInt("ParticleCount", particleCnt);
+                particlesHeightMapScatterShader.SetInt("RegionCount", waveParticleRegions.Count);
+                particlesHeightMapScatterShader.SetInts("TextureSize", resolution, resolution);
+                particlesHeightMapScatterShader.SetInt("RegionId", regionIdx);
+
+                particlesHeightMapScatterShader.Dispatch(scatterKernel, Mathf.CeilToInt((float)particleCnt / 256f), 1, 1);
+            }
+
+
+            //------------------
+
+            /*for (int i = 0; i < waveParticleRegions.Count; i++)
             {
                 var region = waveParticleRegions[i];
                 // 按需生成新粒子（你的边缘逻辑）
-                /*var edgeParticles = converter.GenerateParticlesFromSpectrum(
+                *//*var edgeParticles = converter.GenerateParticlesFromSpectrum(
                            ws: wavesSettings,
                            regionCenter: region.center,
                            regionSize: region.size,
-                           sampleCount: sampleCount);*/
+                           sampleCount: sampleCount);*//*
                 var edgeParticles = converter.GenerateParticlesFromSpectrum(
                            ws: wavesSettings,
                            regionCenter: region.center,
@@ -205,7 +260,7 @@ namespace Assets.Scripts
                 oceanMaterial.SetTexture($"_ParticleDisplacementMap{i}", displacementMap[i]);
                 oceanMaterial.SetVector($"_RegionCenter{i}", waveParticleRegions[i].center);
                 oceanMaterial.SetVector($"_RegionSize{i}", waveParticleRegions[i].size);
-            }
+            }*/
 
             //particleCnt = allParticles.Count();
             if (heightMapDisplay != null)
