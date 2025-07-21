@@ -216,10 +216,6 @@ MonoBehaviour:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
     particles: []
-  - center: {x: 100, y: 100}
-    size: {x: 50, y: 50}
-    particles: []
-  allParticles: []
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   sampleCount: 20
   Tp: 10
@@ -234,6 +230,8 @@ MonoBehaviour:
   displacementMap: []
   resolution: 512
   textureSize: {x: 512, y: 512}
+  blendRange: 0.2
+  blendStrength: 1
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 232618950}
@@ -1232,7 +1230,6 @@ MonoBehaviour:
   frameCnt: 0
   particleCnt: 0
   waveParticleRegions: []
-  allParticles: []
   wavesSettings: {fileID: 0}
   sampleCount: 100
   Tp: 10
@@ -1247,6 +1244,8 @@ MonoBehaviour:
   displacementMap: []
   resolution: 512
   textureSize: {x: 512, y: 512}
+  blendRange: 0.2
+  blendStrength: 0.5
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 0}

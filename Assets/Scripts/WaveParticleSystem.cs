@@ -50,6 +50,8 @@ namespace Assets.Scripts
         [SerializeField] private ComputeBuffer[] particleDirBuffers;
         [SerializeField] public int resolution = 256;
         [SerializeField] public Vector2Int textureSize = new Vector2Int(256, 256);
+        [SerializeField] public float blendRange = 0.2f;
+        [SerializeField] public float blendStrength = 0.5f;
         //[SerializeField] float planeSize = 10f;
 
         [SerializeField] Material oceanMaterial;
@@ -158,6 +160,8 @@ namespace Assets.Scripts
             float time = Time.time;
             particleCnt = 0;
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
+            oceanMaterial.SetFloat("_BlendRange",blendRange);
+            oceanMaterial.SetFloat("_BlendStrength",blendStrength);
             for (int i = 0; i < waveParticleRegions.Count; i++)
             {
                 var region = waveParticleRegions[i];
@@ -171,8 +175,7 @@ namespace Assets.Scripts
                            ws: wavesSettings,
                            regionCenter: region.center,
                            regionSize: region.size,
-                           N_omega: 8,
-                           N_theta: 8);
+                           sampleCount: sampleCount );
                 waveParticleRegions[i].particles.AddRange(edgeParticles);
                 //allParticles.AddRange(edgeParticles);
                 // 1. 更新粒子

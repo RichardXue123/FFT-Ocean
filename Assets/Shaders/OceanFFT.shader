@@ -30,6 +30,9 @@
         _RegionSize1("Region Size 1", Vector) = (0,0,0,0)
         _RegionCenter2("Region Center 2", Vector) = (0,0,0,0)
         _RegionSize2("Region Size 2", Vector) = (0,0,0,0)
+        _BlendRange("Blend Range", Range(0,1)) = 0.2
+        _BlendStrength("Blend Strength", Range(0,1)) = 0.5
+
 
 
         [Header(Cascade 0)]
@@ -74,6 +77,10 @@
         float _SSSBase;
         float _SSSScale;
 
+        float _BlendRange;
+        float _BlendStrength;
+
+
         // Utility function: 判断点是否在某个region
         bool InRegion(float2 pos, float4 center, float4 size)
         {
@@ -102,6 +109,28 @@
             return -1;
         }
 
+        float ComputeRegionBlend(float2 pos, float4 center, float4 size, float blendRange)
+        {
+            float2 halfSize = size.xy * 0.5;
+            float2 boxMin = center.xy - halfSize;
+            float2 boxMax = center.xy + halfSize;
+
+            float2 deltaToMin = pos - boxMin;
+            float2 deltaToMax = boxMax - pos;
+            float2 insideDist = min(deltaToMin, deltaToMax);
+
+            // 计算 blend 距离，按每个轴各自的 box size 来计算（可选：取较小的那一轴）
+            float2 blendDist = blendRange * size.xy;
+
+            // 距离边界小于 blendDist 时开始插值
+            float2 edgeBlend = saturate(1.0 - insideDist / blendDist);
+
+            // 取最大值，保证靠近任意边界都会插值
+            float blend = max(edgeBlend.x, edgeBlend.y);
+
+            return blend;
+        }
+
         void vert(inout appdata_full v, out Input o)
         {
             UNITY_INITIALIZE_OUTPUT(Input, o);
@@ -118,7 +147,7 @@
 
             float2 regionUV;
             int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
-            if (regionIdx == 0) {
+            /*if (regionIdx == 0) {
                 float height = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r;
                 displacement += float3(0, height * _ParticleHeightScale, 0);
                 o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
@@ -132,6 +161,28 @@
                 float height = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r;
                 displacement += float3(0, height * _ParticleHeightScale, 0);
                 o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
+            }*/
+            float finalHeight;
+            float blend = 0;
+            float fftHeight = tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0)).y;
+            float regionHeight = 0;
+            if (regionIdx == 0) {
+                regionHeight = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter0, _RegionSize0, _BlendRange);
+                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                displacement.y = finalHeight;
+            }
+            else if (regionIdx == 1) {
+                regionHeight = tex2Dlod(_ParticleHeightMap1, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter1, _RegionSize1, _BlendRange);
+                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                displacement.y = finalHeight;
+            }
+            else if (regionIdx == 2) {
+                regionHeight = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter2, _RegionSize2, _BlendRange);
+                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                displacement.y = finalHeight;
             }
             else {
                 displacement += tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0));
@@ -167,28 +218,49 @@
             float2 regionUV;
             int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
 
-            float3 worldNormal;
+            float3 regionNormal = float3(0, 1, 0); // 兜底
+            float regionNormalValid = 0;
 
+            // 1. 计算 regionNormal
             if (regionIdx == 0) {
-                // 推荐用法线贴图，如果你生成了它
-                worldNormal = tex2D(_ParticleNormalMap0, regionUV).xyz * 2 - 1;
+                regionNormal = tex2D(_ParticleNormalMap0, regionUV).xyz * 2 - 1;
+                regionNormalValid = 1;
             }
             else if (regionIdx == 1) {
-                worldNormal = tex2D(_ParticleNormalMap1, regionUV).xyz * 2 - 1;
+                regionNormal = tex2D(_ParticleNormalMap1, regionUV).xyz * 2 - 1;
+                regionNormalValid = 1;
             }
             else if (regionIdx == 2) {
-                worldNormal = tex2D(_ParticleNormalMap2, regionUV).xyz * 2 - 1;
+                regionNormal = tex2D(_ParticleNormalMap2, regionUV).xyz * 2 - 1;
+                regionNormalValid = 1;
             }
-            else {
-                // 非region区域：用原有FFT逻辑
-                float4 derivatives = tex2D(_Derivatives_c0, worldPosXZ / LengthScale0);
-                float2 slope = float2(derivatives.x / (1 + derivatives.z), derivatives.y / (1 + derivatives.w));
-                worldNormal = normalize(float3(-slope.x, 1, -slope.y));
-            }
+
+            // 2. 计算 fftNormal（随时可用）
+            float4 derivatives = tex2D(_Derivatives_c0, worldPosXZ / LengthScale0);
+            float2 slope = float2(derivatives.x / (1 + derivatives.z), derivatives.y / (1 + derivatives.w));
+            float3 fftNormal = normalize(float3(-slope.x, 1, -slope.y));
+
+            // 3. 计算 blend 权重（如果在 region 内，否则 0）
+            float blend = 0;
+            if (regionIdx == 0)
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter0, _RegionSize0, _BlendRange);
+            else if (regionIdx == 1)
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter1, _RegionSize1, _BlendRange);
+            else if (regionIdx == 2)
+                blend = ComputeRegionBlend(worldPosXZ, _RegionCenter2, _RegionSize2, _BlendRange);
+
+            // 4. 插值
+            blend *= _BlendStrength; // 强度调节
+            float3 worldNormal;
+            if (blend > 0 && regionNormalValid > 0)
+                worldNormal = normalize(lerp(regionNormal, fftNormal, blend)); // region混合fft
+            else if (regionNormalValid > 0)
+                worldNormal = regionNormal; // 纯region区
+            else
+                worldNormal = fftNormal; // 纯fft区
 
             o.Normal = WorldToTangentNormalVector(IN, worldNormal);
 
-            // 外观设置（不包含泡沫）
             float3 viewDir = normalize(IN.viewVector);
             float3 H = normalize(-worldNormal + _WorldSpaceLightPos0);
             float ViewDotH = pow5(saturate(dot(viewDir, -H))) * 30 * _SSSStrength;
@@ -199,12 +271,11 @@
             o.Smoothness = distanceGloss;
             o.Metallic = 0;
 
-            //float3 color = lerp(_Color, saturate(_Color + _SSSColor.rgb * ViewDotH * IN.lodScales.w), IN.lodScales.z);
-            //float3 color = _Color + _SSSColor.rgb * ViewDotH * 0.2;
             float3 color = _Color;
             o.Albedo = color;
             o.Emission = color * (1 - fresnel);
         }
+
         ENDCG
     }
         FallBack "Diffuse"
