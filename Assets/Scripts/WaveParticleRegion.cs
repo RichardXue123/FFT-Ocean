@@ -21,18 +21,12 @@ namespace Assets.Scripts
         public Vector2 size;
 
         /// <summary>
-        /// 本区域的粒子列表（可选）。
-        /// </summary>
-        public List<WaveParticle> particles = new List<WaveParticle>();
-
-        /// <summary>
         /// 构造函数。
         /// </summary>
         public WaveParticleRegion(Vector2 center, Vector2 size)
         {
             this.center = center;
             this.size = size;
-            this.particles = new List<WaveParticle>();
         }
 
         /// <summary>

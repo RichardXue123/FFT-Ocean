@@ -67,9 +67,6 @@ namespace Assets.Scripts
                     position = pos,
                     direction = dir.normalized,
                     height = A,
-                    baseHeight = A,
-                    phase = 0f,
-                    angularFrequency = omega,
                     waveNumber = k,
                     radius = radius,
                     speed = phaseSpeed
@@ -126,10 +123,6 @@ namespace Assets.Scripts
                         position = pos,
                         direction = dir.normalized,
                         height = amplitude,
-                        baseHeight = amplitude,
-                        phase = 0f, // 可加随机相位扰动
-                        angularFrequency = omega,
-                        waveNumber = k,
                         radius = radius,
                         speed = phaseSpeed
                     };

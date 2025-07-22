@@ -1,0 +1,335 @@
+﻿// WaveParticles.compute
+
+//================================================================================
+// 1. 数据结构 & 全局 Buffer / 常量声明
+//================================================================================
+struct WaveParticle {
+    float2 position;
+    float2 direction;
+    float height;
+    float radius;
+    float speed;
+    float waveNumber;
+    int alive; // 0 = dead, 1 = alive
+};
+
+// 所有粒子的存储池
+RWStructuredBuffer<WaveParticle> particleBuffer;
+// spawnCounterBuffer:
+// [0] = 本帧发射量 spawnCount
+// [1] = 尾部自增分配 tailCounter
+// [2] = 空闲槽位计数 freeCount
+RWStructuredBuffer<uint> spawnCounterBuffer;
+RWStructuredBuffer<uint> freeListBuffer;  // 大小 >= maxParticleCount
+
+
+// 输出纹理
+RWTexture2D<float>  Result;             // 高度图
+RWTexture2D<float4> NormalResult;       // 法线图（RGBA 存 XYZ→RGB，A=1）
+RWTexture2D<float2> DisplacementResult; // 位移图（XY 分量）
+
+
+uint    maxParticleCount;    // 一开始分配的最大粒子槽数（如 1e6）
+float   deltaTime;           // Time.deltaTime
+float   globalTime;          // Time.time
+float2  regionCenter;        // 区域中心 (x,z)
+float2  regionSize;          // 区域长宽 (xSize, ySize)
+int2    TextureSize;         // 纹理分辨率
+uint    sampleCount = 1024;         // C# 传入，每帧边缘采样数
+
+// 波谱物理参数 windsea
+float   g;                   // 重力加速度
+float   depth;               // 水深
+float   fetch;               // 有效风区长度
+float2  windSpeed;           // 局部风速矢量
+float   peakOmega;           // ws.spectrums[0].peakOmega
+
+
+//================================================================================
+// 2. 随机数 & JONSWAP 光谱函数
+//================================================================================
+
+// 一个简单 32-bit 散列函数，用来产生伪随机数
+uint Hash(uint x) {
+    x += (x << 10);
+    x ^= (x >> 6);
+    x += (x << 3);
+    x ^= (x >> 11);
+    x += (x << 15);
+    return x;
+}
+// [0,1) 区间伪随机
+float Random01(uint seed) {
+    return (seed & 0x00FFFFFF) / 16777216.0;
+}
+
+float JONSWAPSpectrum(
+    float omega,
+    float omegaP,
+    float2 dir,
+    float2 windVec,
+    float g,
+    float depth,
+    float fetch
+)
+{
+    // Compute wave number and wind speed magnitude
+    float k = omega * omega / g;
+    float U = length(windVec);
+
+    // Omnidirectional spectrum S0
+    float alpha = 0.076 * pow((U * U) / (g * fetch), 0.22);
+    float sigma = (omega <= omegaP) ? 0.07 : 0.09;
+    float diff = omega - omegaP;
+    float rTerm = exp(-(diff * diff) / (2.0 * sigma * sigma * omegaP * omegaP));
+    float S0 = alpha * g * g
+        / pow(omega, 5.0)
+        * exp(-1.25 * pow(omegaP / omega, 4.0))
+        * pow(3.3, rTerm);
+
+    // Depth correction (TMA)
+    float omegaH = omega * sqrt(depth / g);
+    float TMA = (omegaH <= 1.0)
+        ? 0.5 * omegaH * omegaH
+        : ((omegaH < 2.0)
+            ? 1.0 - 0.5 * pow(2.0 - omegaH, 2.0)
+            : 1.0);
+    float S_deep = S0 * TMA;
+
+    // Directional spreading D(θ)
+    float theta = atan2(dir.y, dir.x) - atan2(windVec.y, windVec.x);
+    if (abs(theta) > 3.1415926)
+        theta = 6.2831853 - abs(theta);
+    float mu = (omega <= omegaP) ? 5.0 : -2.5;
+    float n = 16.0 * pow(omega / omegaP, mu);
+    float cosHalf = saturate(cos(theta * 0.5));
+    float D = (n + 1.0) / 6.2831853 * pow(cosHalf, n);
+
+    // Convert from S(omega) to S(k): multiply by dω/dk
+    float domega_dk = 0.5 * sqrt(g / k);
+
+    return S_deep * D * domega_dk;
+}
+
+
+//================================================================================
+// 3. init Kernel：初始化所有槽位为 dead（只需 Dispatch 一次）
+//================================================================================
+#pragma kernel InitParticles
+[numthreads(256, 1, 1)]
+void InitParticles(uint id : SV_DispatchThreadID) {
+    if (id >= maxParticleCount) return;
+    WaveParticle p;
+    p.position = float2(0, 0);
+    p.direction = float2(1, 0);
+    p.height = 0;
+    p.radius = 1;
+    p.speed = 0;
+    p.waveNumber = 0;
+    p.alive = 0;
+    particleBuffer[id] = p;
+}
+
+//================================================================================
+// 4. spwan Kernel：每帧在区域四边随机采样生成新粒子
+//================================================================================
+#pragma kernel SpawnFromSpectrum
+[numthreads(256, 1, 1)]
+void SpawnFromSpectrum(uint id : SV_DispatchThreadID) {
+    uint spawnCount = sampleCount;
+    if (id >= spawnCount) return;
+
+    // 混合帧号 & 线程号做随机种子
+    uint seed0 = Hash(id + Hash(uint(globalTime * 1000)));
+    // 1) 随机方向 θ ∈ [0,2π)
+    float r1 = Random01(Hash(seed0 + 1));
+    float theta = r1 * 6.2831853;
+    float2 dir = float2(cos(theta), sin(theta));
+
+    // 2) 随机 omega ∈ [0.5·ωp, 2.5·ωp]
+    float r2 = Random01(Hash(seed0 + 2));
+    float omega = peakOmega * (0.5 + 2.0 * r2);
+    float k = omega * omega / g;
+    float radius = 3.1415926 / k;
+    float speed = sqrt(g / k);
+
+    // 3) 计算振幅 A = √(2·S(ω,dir))
+    float S = JONSWAPSpectrum(omega, peakOmega, dir, windSpeed, g, depth, fetch);
+    float A = sqrt(max(0, 2.0 * S));
+
+    // 4) 边缘采样位置
+    float2 half = regionSize * 0.5;
+    float r3 = Random01(Hash(seed0 + 3));
+    uint side = (uint)(r3 * 4.0);
+    float u = Random01(Hash(seed0 + 4));
+    float2 pos;
+    if (side == 0)       pos = regionCenter + float2(-half.x, lerp(-half.y, half.y, u));
+    else if (side == 1)  pos = regionCenter + float2(half.x, lerp(-half.y, half.y, u));
+    else if (side == 2)  pos = regionCenter + float2(lerp(-half.x, half.x, u), -half.y);
+    else                 pos = regionCenter + float2(lerp(-half.x, half.x, u), half.y);
+
+    uint slot;
+    InterlockedAdd(spawnCounterBuffer[1], 1, slot);
+
+    // 如果 slot 仍在范围内，就写入新粒子
+    if (slot < maxParticleCount) {
+        WaveParticle np;
+        np.position = pos;
+        np.direction = dir;
+        np.height = A;
+        np.radius = radius;
+        np.speed = speed;
+        np.waveNumber = k;
+        np.alive = 1;
+        particleBuffer[slot] = np;
+    }
+}
+
+//================================================================================
+// 5. update Kernel：更新所有活跃粒子的位置 + 边界销毁
+//================================================================================
+#pragma kernel UpdateParticles
+[numthreads(256, 1, 1)]
+void UpdateParticles(uint id : SV_DispatchThreadID) {
+    if (id >= maxParticleCount) return;
+    WaveParticle p = particleBuffer[id];
+    if (p.alive == 0) return;
+
+    // 只更新位置，不改 height
+    p.position += p.direction * p.speed * deltaTime;
+
+    // 超出边界则销毁
+    float2 half = regionSize * 0.5;
+    if (p.position.x < regionCenter.x - half.x ||
+        p.position.x > regionCenter.x + half.x ||
+        p.position.y < regionCenter.y - half.y ||
+        p.position.y > regionCenter.y + half.y) 
+    {
+        // 标记死掉
+        p.alive = 0;
+        // 原子地给 free-list “入队”：
+        // freeCount++, 得到的 oldFreeCount 作为 freeListBuffer 写入索引
+        uint oldFreeCount;
+        InterlockedAdd(spawnCounterBuffer[2], 1, oldFreeCount);
+        freeListBuffer[oldFreeCount] = id;
+    }
+
+    particleBuffer[id] = p;
+}
+
+//================================================================================
+// 6. Render Kernel：粒子 -> 高度图 / 法线图 / 横向位移图
+//================================================================================
+#pragma kernel RenderParticles
+[numthreads(8, 8, 1)]
+void RenderParticles(uint3 id : SV_DispatchThreadID)
+{
+    // 像素越界检查
+    if (id.x >= TextureSize.x || id.y >= TextureSize.y)
+        return;
+
+    // UV 与世界坐标
+    float2 uv = (float2(id.x, id.y) + 0.5) / float2(TextureSize);
+    float2 worldPos = regionCenter + (uv - 0.5) * regionSize;
+
+    // 累计高度 & 位移
+    float  heightAcc = 0.0;
+    float2 displacementAcc = float2(0.0, 0.0);
+
+    // 遍历所有粒子槽
+    [loop]
+    for (uint i = 0; i < maxParticleCount; i++)
+    {
+        WaveParticle p = particleBuffer[i];
+        if (p.alive == 0)
+            continue;
+
+        // 计算距离与窗口函数
+        float2 delta = worldPos - p.position;
+        float  dist = length(delta);
+        if (dist >= p.radius)
+            continue;
+
+        float t = saturate(dist / p.radius);
+        float w = cos(t * 3.1415926) * 0.5 + 0.5;
+        heightAcc += p.height * w;
+
+        // 横向位移分量
+        float2 dirN = normalize(p.direction);
+        float  u = dot(dirN, delta);
+        if (abs(u) < p.radius)
+        {
+            float sinTerm = -sin(3.1415926 * u / p.radius);
+            displacementAcc += sinTerm * w * dirN;
+        }
+    }
+
+    // 中心差分求法线：Sample 右、上像素高度
+    float dx = regionSize.x / TextureSize.x;
+    float dy = regionSize.y / TextureSize.y;
+    float heightR = 0.0;
+    float heightU = 0.0;
+    float2 worldR = worldPos + float2(dx, 0);
+    float2 worldU = worldPos + float2(0, dy);
+
+    [loop]
+    for (uint i = 0; i < maxParticleCount; i++)
+    {
+        WaveParticle p = particleBuffer[i];
+        if (p.alive == 0)
+            continue;
+
+        // 右侧高度
+        {
+            float distR = length(worldR - p.position);
+            if (distR < p.radius)
+            {
+                float tR = saturate(distR / p.radius);
+                float wR = cos(tR * 3.1415926) * 0.5 + 0.5;
+                heightR += p.height * wR;
+            }
+        }
+        // 上方高度
+        {
+            float distU = length(worldU - p.position);
+            if (distU < p.radius)
+            {
+                float tU = saturate(distU / p.radius);
+                float wU = cos(tU * 3.1415926) * 0.5 + 0.5;
+                heightU += p.height * wU;
+            }
+        }
+    }
+
+    // 构建法线
+    float3 dxVec = float3(dx, heightR - heightAcc, 0);
+    float3 dzVec = float3(0, heightU - heightAcc, dy);
+    float3 normal3 = normalize(cross(dzVec, dxVec));
+    float4 normalColor = float4(normal3 * 0.5 + 0.5, 1.0);
+
+    // 写出到纹理
+    Result[int2(id.xy)] = heightAcc;
+    NormalResult[int2(id.xy)] = normalColor;
+    DisplacementResult[int2(id.xy)] = displacementAcc;
+}
+
+//================================================================================
+// 7. Test CountAlive Kernel：统计 alive==1 的粒子总数
+//================================================================================
+#pragma kernel CountAliveParticles
+RWStructuredBuffer<uint>         aliveCountBuffer; // 长度 1
+
+[numthreads(256, 1, 1)]
+void CountAliveParticles(uint id : SV_DispatchThreadID)
+{
+    if (id >= maxParticleCount) return;
+    WaveParticle p = particleBuffer[id];
+    if (p.alive == 1)
+    {
+        // 原子累加 aliveCountBuffer[0]
+        uint old;
+        InterlockedAdd(aliveCountBuffer[0], 1, old);
+    }
+}
+
+

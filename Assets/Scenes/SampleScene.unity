@@ -210,29 +210,28 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  frameCnt: 0
-  particleCnt: 0
+  MAX_REGIONS: 1
   waveParticleRegions:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
-    particles: []
+  maxParticleCount: 100000
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  sampleCount: 20
+  sampleCount: 1024
+  waveParticleCompute: {fileID: 7200000, guid: 144fa996eb17ccf43b283397b83ee4df, type: 3}
+  resolution: 512
+  textureSize: {x: 512, y: 512}
+  heightMap: []
+  normalMap: []
+  displacementMap: []
+  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  frameCnt: 0
+  particleCnt: 0
   Tp: 10
   Hs: 3
   oceanSize: 100
   fetchSize: 10000
-  heightMapComputeShader: {fileID: 7200000, guid: 83b3be39cba2502458208423702645e5,
-    type: 3}
-  MAX_REGIONS: 3
-  heightMap: []
-  normalMap: []
-  displacementMap: []
-  resolution: 512
-  textureSize: {x: 512, y: 512}
-  blendRange: 0.2
+  blendRange: 0.1
   blendStrength: 1
-  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 232618950}
   displacementMapDisplay: {fileID: 1161298760}
@@ -1227,26 +1226,26 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  frameCnt: 0
-  particleCnt: 0
+  MAX_REGIONS: 3
   waveParticleRegions: []
+  maxParticleCount: 0
   wavesSettings: {fileID: 0}
   sampleCount: 100
+  waveParticleCompute: {fileID: 0}
+  resolution: 512
+  textureSize: {x: 512, y: 512}
+  heightMap: []
+  normalMap: []
+  displacementMap: []
+  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  frameCnt: 0
+  particleCnt: 0
   Tp: 10
   Hs: 3
   oceanSize: 100
   fetchSize: 10000
-  heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
-    type: 3}
-  MAX_REGIONS: 3
-  heightMap: []
-  normalMap: []
-  displacementMap: []
-  resolution: 512
-  textureSize: {x: 512, y: 512}
   blendRange: 0.2
   blendStrength: 0.5
-  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 0}
   displacementMapDisplay: {fileID: 0}
@@ -1284,7 +1283,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!65 &2019759769
 BoxCollider:
   m_ObjectHideFlags: 0
