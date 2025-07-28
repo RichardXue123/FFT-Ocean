@@ -464,19 +464,44 @@ namespace Assets.Scripts
 
 
 
-        public void AddWaveParticle(int regionIdx, Vector2 pos, float amplitude, Vector2 dir)
+        /// <summary>
+        /// 在 regionIdx 对应区域，从 pos 位置往外环形生成一圈波粒子，
+        /// 粒子的振幅/速度与体积变化 deltaV 成正比，方向均匀覆盖一圈。
+        /// </summary>
+        public void GenerateWaveParticles(int regionIdx, Vector2 pos, float deltaV, int objSampleCount = 16)
         {
             if (regionIdx < 0 || regionIdx >= waveParticleRegions.Count) return;
-            var particle = new WaveParticle()
+
+            // deltaV 决定基础振幅、波动速度
+            // 你可根据需要调整这些“物理参数”的线性系数
+            float K1 = 0.1f;
+            float baseAmplitude = deltaV * 0.03f; // 或直接 *某个缩放
+            float baseSpeed = Mathf.Abs(deltaV) * 0.5f; // 越大越快
+            float radius = baseSpeed * baseSpeed * Mathf.PI / wavesSettings.g; // 影响半径
+            //Debug.Log("r:"+radius);
+
+            // 一圈 objSampleCount 个方向
+            for (int i = 0; i < objSampleCount; i++)
             {
-                position = pos,
-                baseHeight = amplitude,
-                direction = dir.normalized,
-                speed = 5.0f,
-                // 其他参数待补充
-            };
-            waveParticleRegions[regionIdx].particles.Add(particle);
+                float angle = i * Mathf.PI * 2.0f / objSampleCount;
+                Vector2 dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+
+                var particle = new WaveParticle()
+                {
+                    position = pos + 2f * dir * radius, // 从采样点为绕一圈发出
+                    baseHeight = baseAmplitude,    // 振幅可正可负
+                    height = baseAmplitude,
+                    direction = dir.normalized,    // 朝外发射
+                    speed = baseSpeed,             // 传播速度
+                    radius = radius,               // 粒子影响半径
+                    phase = 0,
+                    angularFrequency = baseSpeed / radius, // 可根据波速和半径自定义
+                    waveNumber = 2 * Mathf.PI / radius     // 可按半径对应的k算
+                };
+                waveParticleRegions[regionIdx].particles.Add(particle);
+            }
         }
+
 
     }
 

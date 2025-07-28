@@ -147,21 +147,6 @@
 
             float2 regionUV;
             int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
-            /*if (regionIdx == 0) {
-                float height = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r;
-                displacement += float3(0, height * _ParticleHeightScale, 0);
-                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
-            }
-            else if (regionIdx == 1) {
-                float height = tex2Dlod(_ParticleHeightMap1, float4(regionUV, 0, 0)).r;
-                displacement += float3(0, height * _ParticleHeightScale, 0);
-                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
-            }
-            else if (regionIdx == 2) {
-                float height = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r;
-                displacement += float3(0, height * _ParticleHeightScale, 0);
-                o.lodScales = float4(0, 0, 1, max(height * _ParticleHeightScale - _SSSBase, 0) / _SSSScale);
-            }*/
             float finalHeight;
             float blend = 0;
             float fftHeight = tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0)).y;
@@ -169,19 +154,19 @@
             if (regionIdx == 0) {
                 regionHeight = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
                 blend = ComputeRegionBlend(worldPosXZ, _RegionCenter0, _RegionSize0, _BlendRange);
-                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                finalHeight = lerp(regionHeight, fftHeight, blend * _BlendStrength);
                 displacement.y = finalHeight;
             }
             else if (regionIdx == 1) {
                 regionHeight = tex2Dlod(_ParticleHeightMap1, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
                 blend = ComputeRegionBlend(worldPosXZ, _RegionCenter1, _RegionSize1, _BlendRange);
-                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                finalHeight = lerp(regionHeight, fftHeight, blend * _BlendStrength);
                 displacement.y = finalHeight;
             }
             else if (regionIdx == 2) {
                 regionHeight = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
                 blend = ComputeRegionBlend(worldPosXZ, _RegionCenter2, _RegionSize2, _BlendRange);
-                finalHeight = lerp(fftHeight, regionHeight, blend * _BlendStrength);
+                finalHeight = lerp(regionHeight, fftHeight, blend * _BlendStrength);
                 displacement.y = finalHeight;
             }
             else {
@@ -253,7 +238,7 @@
             blend *= _BlendStrength; // 强度调节
             float3 worldNormal;
             if (blend > 0 && regionNormalValid > 0)
-                worldNormal = normalize(lerp(regionNormal, fftNormal, blend)); // region混合fft
+                worldNormal = normalize(lerp(regionNormal, fftNormal, blend * _BlendStrength)); // region混合fft
             else if (regionNormalValid > 0)
                 worldNormal = regionNormal; // 纯region区
             else

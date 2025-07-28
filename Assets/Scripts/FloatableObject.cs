@@ -23,7 +23,8 @@ namespace Assets.Scripts
         // 物体估算体积
         float objectVolume = 1f;
         Rigidbody rb;
-
+        int prevPointCount;
+        float dv;
         void Awake()
         {
             rb = GetComponent<Rigidbody>();
@@ -31,6 +32,8 @@ namespace Assets.Scripts
             // objectVolume 可用网格体积或包围盒体积估算
             objectVolume = EstimateObjectVolume();
             Debug.Log("objectVolume: " + objectVolume);
+            dv = objectVolume / sampleCount; // 每点代表的小体积
+            prevPointCount = 0;
         }
 
         // 1. 均匀或随机生成采样点（包围盒内随机点，mesh内点可用advanced方法）
@@ -67,7 +70,7 @@ namespace Assets.Scripts
         {
             if (water == null || localSamplePoints.Count == 0) return;
             float g = 9.81f;
-            float dv = objectVolume / sampleCount; // 每点代表的小体积
+            int curPointsCount = 0;
             foreach (var local in localSamplePoints)
             {
                 // 1. 采样点的世界坐标
@@ -88,8 +91,17 @@ namespace Assets.Scripts
                     float forceMag = density * g * dv;
                     rb.AddForceAtPosition(normal * forceMag, worldPos);
                     // 这样浮力方向随水面斜面变化
+                    curPointsCount++;
                 }
             }
+            float deltaV = (curPointsCount - prevPointCount) * dv;
+            
+            if (deltaV > 0)
+            {
+                //Debug.Log($"deltaV: {deltaV}");
+                water.GenerateWaveParticles(regionIndex, new Vector2(transform.position.x, transform.position.z), deltaV);
+            }
+            prevPointCount = curPointsCount;
         }
     }
 }
