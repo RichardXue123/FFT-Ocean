@@ -13,7 +13,7 @@ namespace Assets.Scripts
         //private List<WaveParticle> particles;
         private ComputeBuffer particleBuffer;
         //private ComputeBuffer particleBuffer2;
-        public int frameCnt;
+        public int fixedFrameCnt;
         public int particleCnt;
 
         // 基础配置参数
@@ -141,16 +141,16 @@ namespace Assets.Scripts
                     Debug.Log("有csmain");
                 };
             }
-            frameCnt = 0;
+            fixedFrameCnt = 0;
             // 禁用 FFT 级联 keyword
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
         }
-        public void Update()
+        public void FixedUpdate()
         {
-            frameCnt++;
+            fixedFrameCnt++;
 
-            if (frameCnt <=1 || frameCnt % 1 == 0) // 每1帧更新一次边缘
+            if (fixedFrameCnt <=1 || fixedFrameCnt % 1 == 0) // 每1帧更新一次边缘
             {
 
             }
@@ -175,7 +175,8 @@ namespace Assets.Scripts
                            ws: wavesSettings,
                            regionCenter: region.center,
                            regionSize: region.size,
-                           sampleCount: sampleCount );
+                           N_omega : 4,
+                           N_theta : 4);
                 waveParticleRegions[i].particles.AddRange(edgeParticles);
                 //allParticles.AddRange(edgeParticles);
                 // 1. 更新粒子
@@ -219,6 +220,7 @@ namespace Assets.Scripts
             { displacementMapDisplay.texture = displacementMap[0]; }
             
         }
+
         void UpdateRegionParticles(int idx, float deltaTime)
         {
             // 移除越界粒子

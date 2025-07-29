@@ -53,7 +53,7 @@ namespace Assets.Scripts
                     Random.Range(meshBounds.min.y, meshBounds.max.y),
                     Random.Range(meshBounds.min.z, meshBounds.max.z));
                 localSamplePoints.Add(local);
-                Debug.Log($"Point "+generated+": " + local);
+                //Debug.Log($"Point "+generated+": " + local);
                 generated++;
             }
         }

@@ -89,7 +89,7 @@ namespace Assets.Scripts
             Vector2 regionCenter,
             Vector2 regionSize,
             int N_omega = 16, // 频率采样数
-            int N_theta = 24)  // 方向采样数
+            int N_theta = 8)  // 方向采样数
         {
             List<WaveParticle> particles = new List<WaveParticle>();
 
@@ -109,7 +109,7 @@ namespace Assets.Scripts
 
                 for (int itheta = 0; itheta < N_theta; itheta++)
                 {
-                    float theta = delta_theta * (itheta + 0.5f);
+                    float theta = delta_theta * (itheta);
                     Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                     // 谱采样，带宽加权（能量归一化）
@@ -136,7 +136,7 @@ namespace Assets.Scripts
                     particles.Add(particle);
 
                     // 可选：也加入反向相位粒子
-                    particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
+                    //particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
                 }
             }
             return particles;

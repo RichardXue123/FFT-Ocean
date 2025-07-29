@@ -210,14 +210,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  frameCnt: 0
+  fixedFrameCnt: 0
   particleCnt: 0
   waveParticleRegions:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
     particles: []
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  sampleCount: 20
+  sampleCount: 5
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -1227,7 +1227,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  frameCnt: 0
+  fixedFrameCnt: 0
   particleCnt: 0
   waveParticleRegions: []
   wavesSettings: {fileID: 0}
@@ -1285,7 +1285,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!65 &2019759769
 BoxCollider:
   m_ObjectHideFlags: 0
