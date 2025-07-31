@@ -44,6 +44,7 @@ namespace Assets.Scripts
 
         [Header("Rendering")]
         [SerializeField] public ComputeShader heightMapComputeShader;
+        [SerializeField] public ComputeShader SplatComputeShader;
         [SerializeField] public int MAX_REGIONS = 3;
         [SerializeField] public RenderTexture[] heightMap;
         [SerializeField] public RenderTexture[] normalMap;
@@ -80,6 +81,7 @@ namespace Assets.Scripts
 
         public void Start()
         {
+            Debug.Log("Graphics API: " + SystemInfo.graphicsDeviceType);
             particleCnt = 0;
             Debug.Log("WaveParticleSystem Start called!");
             //InitializeSimpleWave();
@@ -188,7 +190,16 @@ namespace Assets.Scripts
                 UpdateRegionParticleBuffer(i);
 
                 // 3. 发送到ComputeShader
-                DispatchRegionComputeShader(i);
+                //DispatchRegionComputeShader(i);
+
+                int kernel = SplatComputeShader.FindKernel("SplatParticles");
+                SplatComputeShader.SetBuffer(kernel, "_Particles", particleBuffer);
+                SplatComputeShader.SetInt("_ParticleCount", particleCnt);
+                SplatComputeShader.SetTexture(kernel, "_HeightMap", heightMap[0]);
+                SplatComputeShader.SetInts("_TexSize", resolution, resolution);
+                int threadGroups = Mathf.CeilToInt((float)particleCnt / 64f); // 64和你的[numthreads(64,1,1)]一致
+                SplatComputeShader.Dispatch(kernel, threadGroups, 1, 1);
+
 
                 /*RenderTexture.active = heightMap[i];
                 heightMapT2D[i].ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
@@ -206,11 +217,11 @@ namespace Assets.Scripts
                 RenderTexture.active = null;*/
 
 
-                oceanMaterial.SetTexture($"_ParticleHeightMap{i}", heightMap[i]);
+                /*oceanMaterial.SetTexture($"_ParticleHeightMap{i}", heightMap[i]);
                 oceanMaterial.SetTexture($"_ParticleNormalMap{i}", normalMap[i]);
                 oceanMaterial.SetTexture($"_ParticleDisplacementMap{i}", displacementMap[i]);
                 oceanMaterial.SetVector($"_RegionCenter{i}", waveParticleRegions[i].center);
-                oceanMaterial.SetVector($"_RegionSize{i}", waveParticleRegions[i].size);
+                oceanMaterial.SetVector($"_RegionSize{i}", waveParticleRegions[i].size);*/
             }
 
             //particleCnt = allParticles.Count();

@@ -14,82 +14,12 @@ namespace Assets.Scripts
     /// </summary>
     public class SpectrumToParticlesConverter
     {
-        /// <summary>
-        /// 根据光谱参数，在指定正方形区域内生成波粒子。
-        /// 主要用于重建区域边缘的粒子状态。
-        /// </summary>
-        /// <param name="spectrum">光谱参数（通常来源于 FFT 的设置）</param>
-        /// <param name="gravity">重力加速度</param>
-        /// <param name="waterDepth">水深</param>
-        /// <param name="regionCenter">目标区域中心，x 和 y 表示世界坐标的 x 和 z 轴</param>
-        /// <param name="regionSize">正方形区域的边长</param>
-        /// <param name="sampleCount">在区域内采样的波数数量</param>
-        /// <returns>生成的波粒子列表</returns>
-        public List<WaveParticle> GenerateParticlesFromSpectrum(
-            WavesSettings ws,
-            Vector2 regionCenter,
-            Vector2 regionSize,
-            int sampleCount = 10)
-        {
-            List<WaveParticle> particles = new List<WaveParticle>();
-
-            // 根据谱参数生成波矢 k 和方向 theta
-            for (int i = 0; i < sampleCount; i++)
-            {
-                // 1. 随机采样角度
-                float theta = Random.Range(0f, 2f * Mathf.PI);
-                Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
-
-                // 2. 采样波长 / 波数
-                float omega = Random.Range(ws.spectrums[0].peakOmega * 0.5f, ws.spectrums[0].peakOmega * 2.5f);
-                float k = omega * omega / ws.g;
-                float radius = Mathf.PI / k;
-                float phaseSpeed = Mathf.Sqrt(ws.g / k);
-
-                // 3. 计算振幅：A = sqrt(2 * S(k))
-                float S = JONSWAPSpectrum(omega,ws.spectrums[0].peakOmega,dir,ws.local.windSpeed,ws.g,ws.depth,ws.local.fetch);
-                if (float.IsNaN(S) || float.IsInfinity(S))
-                {
-                    Debug.LogWarning("S: NaN");
-                    continue;
-                }
-                if (S <= 0) { 
-                    //Debug.Log("S:"+S);
-                    continue;
-                }
-                float A = Mathf.Sqrt(2f * S);
-
-                // 4. 在边缘区域分布（仅边框带内）
-                Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
-
-                var particle = new WaveParticle
-                {
-                    position = pos,
-                    direction = dir.normalized,
-                    height = A,
-                    baseHeight = A,
-                    phase = 0f,
-                    angularFrequency = omega,
-                    waveNumber = k,
-                    radius = radius,
-                    speed = phaseSpeed
-                };
-                //Debug.Log("generate a wp:" + particle.position.x);
-                particles.Add(particle);
-
-                // 也加入反向相位粒子
-               particles.Add(particle.GetNegative(regionSize.x,regionSize.x));
-            }
-
-            return particles;
-        }
-
         public List<WaveParticle> GenerateParticlesFromSpectrum(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
             int N_omega = 16, // 频率采样数
-            int N_theta = 8)  // 方向采样数
+            int N_theta = 16)  // 方向采样数
         {
             List<WaveParticle> particles = new List<WaveParticle>();
 

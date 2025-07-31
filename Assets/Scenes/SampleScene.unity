@@ -224,6 +224,7 @@ MonoBehaviour:
   fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 83b3be39cba2502458208423702645e5,
     type: 3}
+  SplatComputeShader: {fileID: 7200000, guid: e62ac8dd02e4237449b71a94a924b9a3, type: 3}
   MAX_REGIONS: 3
   heightMap: []
   normalMap: []
@@ -1238,6 +1239,7 @@ MonoBehaviour:
   fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
     type: 3}
+  SplatComputeShader: {fileID: 0}
   MAX_REGIONS: 3
   heightMap: []
   normalMap: []
