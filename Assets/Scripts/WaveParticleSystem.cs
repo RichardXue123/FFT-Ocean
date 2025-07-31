@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace Assets.Scripts
 {
@@ -149,7 +151,6 @@ namespace Assets.Scripts
         public void FixedUpdate()
         {
             fixedFrameCnt++;
-
             if (fixedFrameCnt <=1 || fixedFrameCnt % 1 == 0) // 每1帧更新一次边缘
             {
 
@@ -157,6 +158,7 @@ namespace Assets.Scripts
             //Debug.Log("begin updating particles");
             var converter = new SpectrumToParticlesConverter();
             float deltaTime = Time.deltaTime;
+            Debug.Log(deltaTime);
             float time = Time.time;
             particleCnt = 0;
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
@@ -175,11 +177,11 @@ namespace Assets.Scripts
                            ws: wavesSettings,
                            regionCenter: region.center,
                            regionSize: region.size,
-                           N_omega : 4,
-                           N_theta : 4);
+                           N_omega : 8,
+                           N_theta : 8);
                 waveParticleRegions[i].particles.AddRange(edgeParticles);
                 //allParticles.AddRange(edgeParticles);
-                // 1. 更新粒子
+                // 1. 更新粒子 最卡
                 UpdateRegionParticles(i, deltaTime);
 
                 // 2. 更新ComputeBuffer
@@ -188,7 +190,7 @@ namespace Assets.Scripts
                 // 3. 发送到ComputeShader
                 DispatchRegionComputeShader(i);
 
-                RenderTexture.active = heightMap[i];
+                /*RenderTexture.active = heightMap[i];
                 heightMapT2D[i].ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
                 heightMapT2D[i].Apply();
                 RenderTexture.active = null;
@@ -201,7 +203,7 @@ namespace Assets.Scripts
                 RenderTexture.active = normalMap[i];
                 normalMapT2D[i].ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
                 normalMapT2D[i].Apply();
-                RenderTexture.active = null;
+                RenderTexture.active = null;*/
 
 
                 oceanMaterial.SetTexture($"_ParticleHeightMap{i}", heightMap[i]);

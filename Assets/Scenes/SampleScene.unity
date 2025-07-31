@@ -228,7 +228,7 @@ MonoBehaviour:
   heightMap: []
   normalMap: []
   displacementMap: []
-  resolution: 512
+  resolution: 128
   textureSize: {x: 512, y: 512}
   blendRange: 0.2
   blendStrength: 1
