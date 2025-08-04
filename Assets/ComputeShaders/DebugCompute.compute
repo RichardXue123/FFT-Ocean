@@ -1,0 +1,20 @@
+﻿#pragma kernel DebugHeightMap
+
+RWTexture2D<int> _HeightMap;   // 输入的高度图（RInt）
+int2 _TexSize;
+
+RWStructuredBuffer<int> _DebugResult; // 输出结果 [min, max, sum, count]
+
+[numthreads(8, 8, 1)]
+void DebugHeightMap(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TexSize.x || id.y >= _TexSize.y) return;
+
+    int value = _HeightMap[int2(id.x, id.y)];
+
+    // 线程安全累加
+    InterlockedMin(_DebugResult[0], value);
+    InterlockedMax(_DebugResult[1], value);
+    InterlockedAdd(_DebugResult[2], value);
+    InterlockedAdd(_DebugResult[3], 1);
+}

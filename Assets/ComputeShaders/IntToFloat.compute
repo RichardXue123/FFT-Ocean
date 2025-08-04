@@ -1,0 +1,15 @@
+﻿// IntToFloat.compute
+#pragma kernel IntToFloat
+
+RWTexture2D<int> Source;
+RWTexture2D<float> Dest;
+int2 TexSize;
+float Scale;
+
+[numthreads(8, 8, 1)]
+void IntToFloat(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TexSize.x || id.y >= TexSize.y) return;
+    int v = Source[int2(id.xy)];
+    Dest[int2(id.xy)] = v / Scale;
+}

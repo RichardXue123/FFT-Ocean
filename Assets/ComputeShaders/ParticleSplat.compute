@@ -3,10 +3,12 @@
 StructuredBuffer<float4> _Particles; // .x: posx, .y: posy, .z: height, .w: radius
 uint _ParticleCount;
 
-RWTexture2D<float> _HeightMap; // RFloat格式
+RWTexture2D<int> _HeightMap; // RInt格式！
 int2 _TexSize;
 float2 _RegionCenter;
-float _RegionSize;
+float2 _RegionSize;
+
+#define HEIGHT_SCALE 1000 // 精度 0.001，可调大点更准
 
 [numthreads(64, 1, 1)]
 void SplatParticles(uint3 id : SV_DispatchThreadID)
@@ -14,29 +16,25 @@ void SplatParticles(uint3 id : SV_DispatchThreadID)
     uint idx = id.x;
     if (idx >= _ParticleCount) return;
 
-    // 解析float4
     float2 pos = _Particles[idx].xy;
     float height = _Particles[idx].z;
     float radius = _Particles[idx].w;
 
-    // 世界坐标 -> UV
-        // 实时算 region min/max
-    float2 regionMin = _RegionCenter - 0.5 * _RegionSize.xx;
-    float2 regionMax = _RegionCenter + 0.5 * _RegionSize.xx;
+    float2 regionMin = _RegionCenter - 0.5 * _RegionSize;
+    float2 regionMax = _RegionCenter + 0.5 * _RegionSize;
     float2 worldToUV = (pos - regionMin) / (regionMax - regionMin);
     int2 pixelCenter = int2(worldToUV * _TexSize);
 
-    int radiusPixels = int(ceil(radius / ((regionMax.x - regionMin.x) / _TexSize.x))); // 假设xy尺寸一致
+    int radiusPixels = int(ceil(radius / ((regionMax.x - regionMin.x) / _TexSize.x)));
 
-    // AABB像素遍历
-    for (int dy = -radiusPixels; dy <= radiusPixels; ++dy)
+    for (int dy = -radiusPixels; dy <= radiusPixels; ++dy) {
         for (int dx = -radiusPixels; dx <= radiusPixels; ++dx)
         {
             int2 pix = pixelCenter + int2(dx, dy);
             if (pix.x < 0 || pix.y < 0 || pix.x >= _TexSize.x || pix.y >= _TexSize.y)
                 continue;
 
-            float2 uv = (float2(pix)+0.5) / _TexSize;
+            float2 uv = (float2(pix) + 0.5f) / _TexSize;
             float2 worldPos = lerp(regionMin, regionMax, uv);
 
             float dist = distance(worldPos, pos);
@@ -46,8 +44,11 @@ void SplatParticles(uint3 id : SV_DispatchThreadID)
             float weight = cos(3.1415926f * t) * 0.5 + 0.5;
 
             float delta = height * weight;
+            int deltaInt = int(delta * HEIGHT_SCALE);
 
-            //DX12支持
-            InterlockedAdd(_HeightMap[pix], delta);
+            //float兼容性
+            //InterlockedAdd(_HeightMap[pix], deltaInt);
+            _HeightMap[pix] += deltaInt;
         }
+    }
 }
