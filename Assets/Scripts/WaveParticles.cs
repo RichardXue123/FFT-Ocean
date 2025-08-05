@@ -16,14 +16,10 @@ namespace Assets.Scripts
         public Vector2 position;      // 当前位置（原WavePos）
         public Vector2 direction;     // 传播方向（原WaveDir）
         public float height;          // 波峰高度（原WaveHeight）
-        public float baseHeight;      // 振幅，初始高度值
         public float speed;           // 传播速度（原WaveSpeed）
         public float radius;          // 影响半径（原Radius）
-        public float waveNumber;      // 波数k（原WaveVector）
-
-        // 相位控制
-        public float phase;           // 初始相位
-        public float angularFrequency;// 角频率ω=√(gk)
+        public float k;      // 波数k
+        public float omega;// 角频率ω=√(gk)
 
         public WaveParticle GetNegative(float planSize,  float oceanSize)
         {
@@ -38,13 +34,11 @@ namespace Assets.Scripts
                 direction = this.direction,
                 // 高度取反
                 height = -this.height,
-                baseHeight = -this.baseHeight,
                 // 保留相同的振幅、速度、波数、半径、相位和角频率
                 speed = this.speed,
                 radius = this.radius,
-                waveNumber = this.waveNumber,
-                phase = this.phase,
-                angularFrequency = this.angularFrequency
+                k = this.k,
+                omega = this.omega
             };
             return ret;
         }

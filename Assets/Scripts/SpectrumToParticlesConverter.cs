@@ -23,7 +23,6 @@ namespace Assets.Scripts
             int N_theta = 16,
             float deltaTime = 0.02f)
         {
-            // 初始化二维List，每个桶装一个omega采样的所有粒子
             var particles = new List<WaveParticle>();
 
             // omega采样区间
@@ -61,10 +60,8 @@ namespace Assets.Scripts
                             position = pos,
                             direction = dir.normalized,
                             height = amplitude,
-                            baseHeight = amplitude,
-                            phase = 0f,
-                            angularFrequency = omega,
-                            waveNumber = k,
+                            omega = omega,
+                            k = k,
                             radius = radius,
                             speed = phaseSpeed
                         };
