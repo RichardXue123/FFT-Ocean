@@ -21,6 +21,8 @@ namespace Assets.Scripts
         public float k;      // 波数k
         public float omega;// 角频率ω=√(gk)
 
+        public int bucketNum; //所分到bucket的num
+
         public WaveParticle GetNegative(float planSize,  float oceanSize)
         {
             // 归一化方向向量
@@ -38,7 +40,8 @@ namespace Assets.Scripts
                 speed = this.speed,
                 radius = this.radius,
                 k = this.k,
-                omega = this.omega
+                omega = this.omega,
+                bucketNum = this.bucketNum
             };
             return ret;
         }

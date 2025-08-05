@@ -218,7 +218,6 @@ MonoBehaviour:
   waveParticleRegions:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
-    particles: []
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   sampleCount: 5
   N_omega: 4
@@ -233,6 +232,8 @@ MonoBehaviour:
   Int2FloatComputeShader: {fileID: 7200000, guid: 1631aff1d80cc924484221b5e542db27,
     type: 3}
   DebugComputeShader: {fileID: 7200000, guid: c757fbe659587f7439a77a8485fc5ce3, type: 3}
+  Height2NormalComputeShader: {fileID: 7200000, guid: 1136da0994e98c844ba4763db661410b,
+    type: 3}
   heightMapTest: {fileID: 0}
   MAX_REGIONS: 3
   heightMap: []
@@ -240,8 +241,8 @@ MonoBehaviour:
   displacementMap: []
   resolution: 256
   textureSize: {x: 512, y: 512}
-  blendRange: 0
-  blendStrength: 0
+  blendRange: 0.2
+  blendStrength: 1
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   debugOut: 00000000000000000000000000000000
   heightMapDisplay: {fileID: 1707354935}
@@ -1408,6 +1409,7 @@ MonoBehaviour:
   SplatComputeShader: {fileID: 0}
   Int2FloatComputeShader: {fileID: 0}
   DebugComputeShader: {fileID: 0}
+  Height2NormalComputeShader: {fileID: 0}
   heightMapTest: {fileID: 0}
   MAX_REGIONS: 3
   heightMap: []

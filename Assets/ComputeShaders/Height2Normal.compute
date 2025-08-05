@@ -1,0 +1,24 @@
+﻿#pragma kernel CSMain
+
+Texture2D<float> HeightTex        : register(t0);
+RWTexture2D<float4> NormalTex     : register(u0);
+int2 TexSize;
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= TexSize.x || id.y >= TexSize.y)
+        return;
+
+    float hC = HeightTex[int2(id.x, id.y)];
+    float hR = HeightTex[int2(min(id.x + 1, TexSize.x - 1), id.y)];
+    float hL = HeightTex[int2(max(id.x - 1, 0), id.y)];
+    float hU = HeightTex[int2(id.x, min(id.y + 1, TexSize.y - 1))];
+    float hD = HeightTex[int2(id.x, max(id.y - 1, 0))];
+
+    float3 dxVec = float3(1, hR - hL, 0);
+    float3 dzVec = float3(0, hU - hD, 1);
+
+    float3 normal = normalize(cross(dzVec, dxVec));
+    NormalTex[int2(id.x, id.y)] = float4(normal * 0.5f + 0.5f, 1.0f);
+}

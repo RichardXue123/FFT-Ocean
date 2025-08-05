@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Unity.Collections;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
@@ -15,15 +16,16 @@ namespace Assets.Scripts
     public class SpectrumToParticlesConverter
     {
         // 主函数：采样并按radius/omega分桶
-        public List<WaveParticle> GenerateParticlesFromSpectrum(
+        public NativeList<WaveParticle> GenerateParticlesFromSpectrum(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
             int N_omega = 16,
             int N_theta = 16,
-            float deltaTime = 0.02f)
+            float deltaTime = 0.02f,
+            Allocator allocator = Allocator.Persistent)
         {
-            var particles = new List<WaveParticle>();
+            var particles = new NativeList<WaveParticle>(allocator);
 
             // omega采样区间
             float omega_p = ws.spectrums[0].peakOmega;
@@ -31,7 +33,7 @@ namespace Assets.Scripts
             float omega_max = omega_p * 2.5f;
             float delta_omega = (omega_max - omega_min) / N_omega;
             float delta_theta = 2 * Mathf.PI / N_theta;
-
+            //Debug.Log("omega p : " + omega_p);
             for (int iw = 0; iw < N_omega; iw++)
             {
                 float omega = omega_min + delta_omega * (iw + 0.5f);
@@ -40,6 +42,7 @@ namespace Assets.Scripts
                 float phaseSpeed = Mathf.Sqrt(ws.g / k);
                 float groupSpeed = 0.5f * phaseSpeed;
                 float batchSize = (groupSpeed * 2f * deltaTime * regionSize.x);
+                //batchSize = 4;
                 //Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
                 for (int i = 0; i < Math.Max(1,batchSize); i++) {
                     //至少生成一次
@@ -63,7 +66,8 @@ namespace Assets.Scripts
                             omega = omega,
                             k = k,
                             radius = radius,
-                            speed = phaseSpeed
+                            speed = phaseSpeed,
+                            bucketNum = iw
                         };
                         particles.Add(particle);
 

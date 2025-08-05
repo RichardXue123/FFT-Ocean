@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Unity.Collections;
 using UnityEngine;
 
 namespace Assets.Scripts
@@ -23,7 +24,7 @@ namespace Assets.Scripts
         /// <summary>
         /// 本区域的粒子列表（可选）。
         /// </summary>
-        public List<WaveParticle> particles;
+        public NativeList<WaveParticle> particles = new NativeList<WaveParticle>(Allocator.Persistent);
 
         /// <summary>
         /// 构造函数。
@@ -32,7 +33,7 @@ namespace Assets.Scripts
         {
             this.center = center;
             this.size = size;
-            this.particles = new List<WaveParticle>();
+            this.particles = new NativeList<WaveParticle>(Allocator.Persistent);
         }
 
         /// <summary>

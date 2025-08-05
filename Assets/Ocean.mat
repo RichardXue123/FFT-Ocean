@@ -183,8 +183,8 @@ Material:
     m_Ints: []
     m_Floats:
     - _Amp: 1
-    - _BlendRange: 0
-    - _BlendStrength: 0
+    - _BlendRange: 0.2
+    - _BlendStrength: 1
     - _BumpScale: 1
     - _Cascade0: 1
     - _Cascade1: 1

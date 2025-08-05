@@ -47,8 +47,8 @@ void SplatParticles(uint3 id : SV_DispatchThreadID)
             int deltaInt = int(delta * HEIGHT_SCALE);
 
             //float兼容性
-            //InterlockedAdd(_HeightMap[pix], deltaInt);
-            _HeightMap[pix] += deltaInt;
+            InterlockedAdd(_HeightMap[pix], deltaInt);
+            //_HeightMap[pix] += deltaInt;
         }
     }
 }
