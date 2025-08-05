@@ -14,16 +14,21 @@ namespace Assets.Scripts
     /// </summary>
     public class SpectrumToParticlesConverter
     {
-        public List<WaveParticle> GenerateParticlesFromSpectrum(
+        // 主函数：采样并按radius/omega分桶
+        public List<List<WaveParticle>> GenerateParticlesFromSpectrum(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
-            int N_omega = 16, // 频率采样数
-            int N_theta = 16)  // 方向采样数
+            int N_omega = 16,
+            int N_theta = 16,
+            float deltaTime = 0.02f)
         {
-            List<WaveParticle> particles = new List<WaveParticle>();
+            // 初始化二维List，每个桶装一个omega采样的所有粒子
+            var buckets = new List<List<WaveParticle>>(N_omega);
+            for (int i = 0; i < N_omega; ++i)
+                buckets.Add(new List<WaveParticle>());
 
-            // 频率采样区间，主峰附近
+            // omega采样区间
             float omega_p = ws.spectrums[0].peakOmega;
             float omega_min = omega_p * 0.5f;
             float omega_max = omega_p * 2.5f;
@@ -36,53 +41,55 @@ namespace Assets.Scripts
                 float k = omega * omega / ws.g;
                 float radius = Mathf.PI / k;
                 float phaseSpeed = Mathf.Sqrt(ws.g / k);
-
-                for (int itheta = 0; itheta < N_theta; itheta++)
-                {
-                    float theta = delta_theta * (itheta);
-                    Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
-
-                    // 谱采样，带宽加权（能量归一化）
-                    float S = JONSWAPSpectrum(omega, omega_p, dir, ws.local.windSpeed, ws.g, ws.depth, ws.local.fetch);
-                    if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
-
-                    float amplitude = Mathf.Sqrt(2f * S * delta_omega * delta_theta); // 归一化的振幅
-
-                    // 边缘采样一个位置（方向可选对应主传播边，也可随机）
-                    Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
-
-                    var particle = new WaveParticle
+                float groupSpeed = 0.5f * phaseSpeed;
+                float batchSize = (groupSpeed * 2f * deltaTime * regionSize.x);
+                Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
+                for (int i = 0; i < Math.Max(1,batchSize); i++) {
+                    //至少生成一次
+                    for (int itheta = 0; itheta < N_theta; itheta++)
                     {
-                        position = pos,
-                        direction = dir.normalized,
-                        height = amplitude,
-                        baseHeight = amplitude,
-                        phase = 0f, // 可加随机相位扰动
-                        angularFrequency = omega,
-                        waveNumber = k,
-                        radius = radius,
-                        speed = phaseSpeed
-                    };
-                    particles.Add(particle);
+                        float theta = delta_theta * (itheta);
+                        Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
-                    // 可选：也加入反向相位粒子
-                    particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
+                        float S = JONSWAPSpectrum(omega, omega_p, dir, ws.local.windSpeed, ws.g, ws.depth, ws.local.fetch);
+                        if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
+
+                        float amplitude = Mathf.Sqrt(2f * S * delta_omega * delta_theta);
+
+                        Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
+
+                        var particle = new WaveParticle
+                        {
+                            position = pos,
+                            direction = dir.normalized,
+                            height = amplitude,
+                            baseHeight = amplitude,
+                            phase = 0f,
+                            angularFrequency = omega,
+                            waveNumber = k,
+                            radius = radius,
+                            speed = phaseSpeed
+                        };
+                        buckets[iw].Add(particle);
+
+                        // 反向粒子可选加进来
+                        buckets[iw].Add(particle.GetNegative(regionSize.x, regionSize.x));
+                    }
                 }
             }
-            return particles;
+            return buckets;
         }
 
-
-        /// <summary>
-        /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
-        /// </summary>
-        /// <param name="k">波数大小</param>
-        /// <param name="dir">波数方向（单位向量）</param>
-        /// <param name="windVec">风速矢量（含大小和方向）</param>
-        /// <param name="g">重力加速度（9.81）</param>
-        /// <param name="depth">水深</param>
-        /// <param name="fetch">有效风区长度（可用海面长度代替）</param>
-        public float JONSWAPSpectrum(
+            /// <summary>
+            /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
+            /// </summary>
+            /// <param name="k">波数大小</param>
+            /// <param name="dir">波数方向（单位向量）</param>
+            /// <param name="windVec">风速矢量（含大小和方向）</param>
+            /// <param name="g">重力加速度（9.81）</param>
+            /// <param name="depth">水深</param>
+            /// <param name="fetch">有效风区长度（可用海面长度代替）</param>
+            public float JONSWAPSpectrum(
             float ω,
             float ωp,
             Vector2 dir,

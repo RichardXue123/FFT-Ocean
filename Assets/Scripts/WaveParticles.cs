@@ -10,7 +10,7 @@ namespace Assets.Scripts
 {
     // 波粒子核心数据结构
     [System.Serializable]
-    public class WaveParticle
+    public struct WaveParticle
     {
         // 基础物理属性
         public Vector2 position;      // 当前位置（原WavePos）
@@ -24,19 +24,6 @@ namespace Assets.Scripts
         // 相位控制
         public float phase;           // 初始相位
         public float angularFrequency;// 角频率ω=√(gk)
-        public WaveParticle()
-        {
-            // 初始化默认值
-            position = Vector2.zero;
-            direction = Vector2.up;
-            height = 0;
-            baseHeight = 0;
-            speed = 0;
-            radius = 0;
-            waveNumber = 0;
-            phase = 0;
-            angularFrequency = 0;
-        }
 
         public WaveParticle GetNegative(float planSize,  float oceanSize)
         {
@@ -62,40 +49,10 @@ namespace Assets.Scripts
             return ret;
         }
 
-        // 随时间更新波粒子的信息
-        public void UpdateParticle(float time)
-        {
-            // 计算波动的高度，假设是简单的正弦波传播
-            // 波动传播方程: height = A * sin(k * x - ω * t)
-            // A：振幅，k：波数，ω：角频率，t：时间，x：位置
-
-            //float omega = Mathf.Sqrt(9.8f / radius); // 角频率（ω = √(gk)）
-            float curPhase = waveNumber * Vector2.Dot(position, direction.normalized) - angularFrequency * time + phase;
-            height = baseHeight * Mathf.Sin(curPhase);
-        }
-
         // 更新波粒子
         public void Update(float deltaTime, float planeSize, float oceanSize)
         {
-            height = baseHeight;
             position += deltaTime * speed * direction * planeSize / oceanSize; // 更新位置
-            /*float worldRadius = radius * planeSize / oceanSize;
-            if (position.x > planeSize / 2 + worldRadius)
-            { 
-                position.x -= (planeSize + 2 * worldRadius); 
-            }
-            else if (position.x < -(planeSize / 2 + worldRadius))
-            {
-                position.x += (planeSize + 2 * worldRadius);
-            }
-            if (position.y > planeSize / 2 + worldRadius)
-            {
-                position.y -= (planeSize + 2 * worldRadius);
-            }
-            else if (position.y < -(planeSize / 2 + worldRadius))
-            {
-                position.y += (planeSize + 2 * worldRadius);
-            }*/
         }
 
         // 转换为 Vector4 传入 GPU

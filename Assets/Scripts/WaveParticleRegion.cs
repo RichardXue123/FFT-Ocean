@@ -23,16 +23,18 @@ namespace Assets.Scripts
         /// <summary>
         /// 本区域的粒子列表（可选）。
         /// </summary>
-        public List<WaveParticle> particles = new List<WaveParticle>();
+        public List<List<WaveParticle>> particles;
 
         /// <summary>
         /// 构造函数。
         /// </summary>
-        public WaveParticleRegion(Vector2 center, Vector2 size)
+        public WaveParticleRegion(Vector2 center, Vector2 size, int nOmega)
         {
             this.center = center;
             this.size = size;
-            this.particles = new List<WaveParticle>();
+            this.particles = new List<List<WaveParticle>>(nOmega);
+            for (int i = 0; i < nOmega; ++i)
+                this.particles.Add(new List<WaveParticle>());
         }
 
         /// <summary>

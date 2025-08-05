@@ -32,6 +32,8 @@ namespace Assets.Scripts
         //[SerializeField] public int layerCnt = 1;
         [SerializeField] public int sampleCount = 100;
         //[SerializeField] public float gravity = 9.81f;
+        [SerializeField] public int N_omega = 8;
+        [SerializeField] public int N_theta = 8;
         [SerializeField]
         [Tooltip("峰值周期")]
         public float Tp = 3.8f;//Tp
@@ -156,7 +158,7 @@ namespace Assets.Scripts
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
         }
-        public void Update()
+        public void FixedUpdate()
         {
             fixedFrameCnt++;
             if (fixedFrameCnt <=1 || fixedFrameCnt % 1 == 0) // 每1帧更新一次边缘
@@ -189,9 +191,10 @@ namespace Assets.Scripts
                             ws: wavesSettings,
                             regionCenter: region.center,
                             regionSize: region.size,
-                            N_omega: 8,
-                            N_theta: 8);
-                waveParticleRegions[i].particles.AddRange(edgeParticles);
+                            N_omega: N_omega,
+                            N_theta: N_theta,
+                            deltaTime: deltaTime);
+                //waveParticleRegions[i].particles.AddRange(edgeParticles);
                 // 1. 更新粒子 最卡
                 UpdateRegionParticles(i, deltaTime);
 
