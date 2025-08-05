@@ -87,6 +87,7 @@ namespace Assets.Scripts
 
         public void Start()
         {
+            
             Debug.Log("Graphics API: " + SystemInfo.graphicsDeviceType);
             particleCnt = 0;
             Debug.Log("WaveParticleSystem Start called!");
@@ -194,7 +195,7 @@ namespace Assets.Scripts
                             N_omega: N_omega,
                             N_theta: N_theta,
                             deltaTime: deltaTime);
-                //waveParticleRegions[i].particles.AddRange(edgeParticles);
+                waveParticleRegions[i].particles.AddRange(edgeParticles);
                 // 1. 更新粒子 最卡
                 UpdateRegionParticles(i, deltaTime);
 

@@ -15,7 +15,7 @@ namespace Assets.Scripts
     public class SpectrumToParticlesConverter
     {
         // 主函数：采样并按radius/omega分桶
-        public List<List<WaveParticle>> GenerateParticlesFromSpectrum(
+        public List<WaveParticle> GenerateParticlesFromSpectrum(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
@@ -24,9 +24,7 @@ namespace Assets.Scripts
             float deltaTime = 0.02f)
         {
             // 初始化二维List，每个桶装一个omega采样的所有粒子
-            var buckets = new List<List<WaveParticle>>(N_omega);
-            for (int i = 0; i < N_omega; ++i)
-                buckets.Add(new List<WaveParticle>());
+            var particles = new List<WaveParticle>();
 
             // omega采样区间
             float omega_p = ws.spectrums[0].peakOmega;
@@ -43,7 +41,7 @@ namespace Assets.Scripts
                 float phaseSpeed = Mathf.Sqrt(ws.g / k);
                 float groupSpeed = 0.5f * phaseSpeed;
                 float batchSize = (groupSpeed * 2f * deltaTime * regionSize.x);
-                Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
+                //Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
                 for (int i = 0; i < Math.Max(1,batchSize); i++) {
                     //至少生成一次
                     for (int itheta = 0; itheta < N_theta; itheta++)
@@ -70,14 +68,14 @@ namespace Assets.Scripts
                             radius = radius,
                             speed = phaseSpeed
                         };
-                        buckets[iw].Add(particle);
+                        particles.Add(particle);
 
                         // 反向粒子可选加进来
-                        buckets[iw].Add(particle.GetNegative(regionSize.x, regionSize.x));
+                        particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
                     }
                 }
             }
-            return buckets;
+            return particles;
         }
 
             /// <summary>

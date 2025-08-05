@@ -221,6 +221,8 @@ MonoBehaviour:
     particles: []
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   sampleCount: 5
+  N_omega: 4
+  N_theta: 4
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -241,6 +243,7 @@ MonoBehaviour:
   blendRange: 0
   blendStrength: 0
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  debugOut: 00000000000000000000000000000000
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 232618950}
   displacementMapDisplay: {fileID: 1161298760}
@@ -1394,6 +1397,8 @@ MonoBehaviour:
   waveParticleRegions: []
   wavesSettings: {fileID: 0}
   sampleCount: 100
+  N_omega: 8
+  N_theta: 8
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -1413,6 +1418,7 @@ MonoBehaviour:
   blendRange: 0.2
   blendStrength: 0.5
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  debugOut: 00000000000000000000000000000000
   heightMapDisplay: {fileID: 1707354935}
   normalMapDisplay: {fileID: 0}
   displacementMapDisplay: {fileID: 0}
