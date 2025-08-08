@@ -15,13 +15,18 @@ namespace Assets.Scripts
     /// </summary>
     public class SpectrumToParticlesConverter
     {
+        public List<float> batchAccumulate = new List<float>();
+
+        public void Initialize(int N_omega) {
+            batchAccumulate = new List<float>(new float[N_omega]);
+        }
         // 主函数：采样并按radius/omega分桶
         public NativeList<WaveParticle> GenerateParticlesFromSpectrum(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
-            int N_omega = 16,
-            int N_theta = 16,
+            int N_omega = 8,
+            int N_theta = 8,
             float deltaTime = 0.02f,
             Allocator allocator = Allocator.Persistent)
         {
@@ -33,19 +38,23 @@ namespace Assets.Scripts
             float omega_max = omega_p * 2.5f;
             float delta_omega = (omega_max - omega_min) / N_omega;
             float delta_theta = 2 * Mathf.PI / N_theta;
-            //Debug.Log("omega p : " + omega_p);
+            //Debug.Log("delta omega : " + delta_omega);
             for (int iw = 0; iw < N_omega; iw++)
             {
                 float omega = omega_min + delta_omega * (iw + 0.5f);
                 float k = omega * omega / ws.g;
                 float radius = Mathf.PI / k;
                 float phaseSpeed = Mathf.Sqrt(ws.g / k);
-                float groupSpeed = 0.5f * phaseSpeed;
-                float batchSize = (groupSpeed * 2f * deltaTime * regionSize.x);
+                float batchSize = omega * omega * omega / (Mathf.PI * Mathf.PI * Mathf.PI * ws.g)
+                    * deltaTime * regionSize.x * 2f / delta_omega;
                 //batchSize = 4;
                 //Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
-                for (int i = 0; i < Math.Max(1,batchSize); i++) {
-                    //至少生成一次
+                // **小数累加与取整生成 batch**
+                batchAccumulate[iw] += batchSize;
+                int nBatch = Mathf.FloorToInt(batchAccumulate[iw]);
+                batchAccumulate[iw] -= nBatch;
+
+                for (int batch = 0; batch < nBatch; batch++) {
                     for (int itheta = 0; itheta < N_theta; itheta++)
                     {
                         float theta = delta_theta * (itheta);
@@ -113,7 +122,7 @@ namespace Assets.Scripts
                      * Mathf.Pow(γ, r);
             if (float.IsNaN(S0) || float.IsInfinity(S0))
             {
-                Debug.Log("S0: NaN");
+                //Debug.Log("S0: NaN");
             }
 
             // 有限深度 TMA 修正

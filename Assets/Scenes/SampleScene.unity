@@ -220,8 +220,8 @@ MonoBehaviour:
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   sampleCount: 5
-  N_omega: 4
-  N_theta: 4
+  N_omega: 8
+  N_theta: 8
   Tp: 10
   Hs: 3
   oceanSize: 100

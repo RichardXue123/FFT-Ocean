@@ -153,7 +153,7 @@ namespace Assets.Scripts
 
             heightMaps = new NativeArray<float>[N_omega];
             for (int b = 0; b < N_omega; b++) {
-                heightMaps[b] = new NativeArray<float>(resolution * resolution, Allocator.TempJob);
+                heightMaps[b] = new NativeArray<float>(resolution * resolution, Allocator.Persistent);
             }
                 
             heightMapTest = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RInt);
@@ -168,17 +168,13 @@ namespace Assets.Scripts
                 };
             }
             fixedFrameCnt = 0;
-            // 禁用 FFT 级联 keyword
+            converter.Initialize(N_omega);
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
         }
         public void FixedUpdate()
         {
             fixedFrameCnt++;
-            if (fixedFrameCnt <=1 || fixedFrameCnt % 1 == 0) // 每1帧更新一次边缘
-            {
-
-            }
             //Debug.Log("begin updating particles");
             float deltaTime = Time.deltaTime;
             //Debug.Log(deltaTime);
@@ -207,7 +203,8 @@ namespace Assets.Scripts
                             N_omega: N_omega,
                             N_theta: N_theta,
                             deltaTime: deltaTime);
-                waveParticleRegions[i].particles.AddRange(edgeParticles);
+                waveParticleRegions[i].particles.AddRange(edgeParticles.AsArray());
+                edgeParticles.Dispose();
                 // 1. 更新粒子 最卡
                 UpdateRegionParticles(i, deltaTime);
 

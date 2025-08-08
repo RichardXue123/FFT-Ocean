@@ -59,7 +59,7 @@ public class WavesGenerator : MonoBehaviour
         //Shader.SetGlobalFloat("LengthScale2", lengthScale2);
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (alwaysRecalculateInitials)
         {
