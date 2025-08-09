@@ -1,0 +1,16 @@
+﻿// ReduceSlicesCS.compute
+#pragma kernel SumSlices
+Texture2DArray<float4> _HeightMapArray;
+RWTexture2D<float>    _HeightMapOut;
+int2 _TexSize;
+int  _SliceCount;
+
+[numthreads(8, 8, 1)]
+void SumSlices(uint3 id:SV_DispatchThreadID)
+{
+    if (id.x >= _TexSize.x || id.y >= _TexSize.y) return;
+    float s = 0.0;
+    for (int z = 0; z < _SliceCount; ++z)
+        s += _HeightMapArray[int3(id.xy, z)].g;
+    _HeightMapOut[int2(id.xy)] = s;
+}

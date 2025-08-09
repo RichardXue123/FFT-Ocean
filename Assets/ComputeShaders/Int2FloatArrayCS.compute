@@ -1,0 +1,17 @@
+﻿// Int2FloatArrayCS.compute
+#pragma kernel IntToFloatArray
+Texture2DArray<int>  Source;
+RWTexture2DArray<float> Dest;
+int2 TexSize;
+float Scale;
+int SliceCount;
+
+[numthreads(8, 8, 1)]
+void IntToFloatArray(uint3 id:SV_DispatchThreadID)
+{
+    if (id.x >= TexSize.x || id.y >= TexSize.y) return;
+    for (int s = 0; s < SliceCount; ++s) {
+        int v = Source[int3(id.xy, s)];
+        Dest[int3(id.xy, s)] = v / Scale;
+    }
+}

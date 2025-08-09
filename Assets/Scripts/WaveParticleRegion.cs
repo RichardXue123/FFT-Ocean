@@ -24,7 +24,21 @@ namespace Assets.Scripts
         /// <summary>
         /// 本区域的粒子列表（可选）。
         /// </summary>
-        public NativeList<WaveParticle> particles = new NativeList<WaveParticle>(Allocator.Persistent);
+        //public NativeList<WaveParticle> particles = new NativeList<WaveParticle>(Allocator.Persistent);
+
+        public NativeList<WaveParticle>[] buckets;
+
+        public void InitBuckets(int nOmega)
+        {
+            buckets = new NativeList<WaveParticle>[nOmega];
+            for (int i = 0; i < nOmega; i++)
+                buckets[i] = new NativeList<WaveParticle>(Allocator.Persistent);
+        }
+
+        public void ClearBuckets()
+        {
+            for (int i = 0; i < buckets.Length; i++) buckets[i].Clear();
+        }
 
         /// <summary>
         /// 构造函数。
@@ -33,7 +47,7 @@ namespace Assets.Scripts
         {
             this.center = center;
             this.size = size;
-            this.particles = new NativeList<WaveParticle>(Allocator.Persistent);
+            //this.particles = new NativeList<WaveParticle>(Allocator.Persistent);
         }
 
         /// <summary>

@@ -81,7 +81,7 @@ namespace Assets.Scripts
                         particles.Add(particle);
 
                         // 反向粒子可选加进来
-                        particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
+                        //particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
                     }
                 }
             }

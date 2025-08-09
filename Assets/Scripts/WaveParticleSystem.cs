@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
+using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
 
 namespace Assets.Scripts
@@ -37,6 +38,20 @@ namespace Assets.Scripts
         public float Hs = 3.0f;//有义波高，默认3m
         [SerializeField] float oceanSize = 100f;
 
+        [Header("buckets相关参数")]
+        [SerializeField] public RenderTexture[] heightSlicesInt;   // Tex2DArray: RInt
+        [SerializeField] public RenderTexture[] heightSlicesFloat; // Tex2DArray: RFloat (滤波输入/输出)
+        [SerializeField] public RenderTexture[] heightSlicesTmp; // 滤波 ping-pong 用
+        [SerializeField] public ComputeShader SplatBucketsCS;
+        [SerializeField] public ComputeShader Int2FloatArrayCS;
+        [SerializeField] public ComputeShader SeparableFilterCS;   // 横/纵两个kernel
+        [SerializeField] public ComputeShader ReduceSlicesCS;      // 合并 slices → RFloat
+
+
+        private ComputeBuffer[][] particleBuffersPerBucket; // [region][bucket]
+        private int[] bucketCounts;                         // 复用计数缓存
+        private float[] bucketRadii;                        // 每桶代表半径(世界单位)
+
 
         [Header("Rendering")]
         [SerializeField] public ComputeShader heightMapComputeShader;
@@ -64,6 +79,9 @@ namespace Assets.Scripts
 
         MeshUtils.Element OceanCenter;
         [Header("Debug")]
+        // 在类里缓存一个可复用的2D RT
+        RenderTexture _slicePreviewRT;
+
         public int[] debugOut = new int[4];
         public UnityEngine.UI.RawImage heightMapDisplay;
         public UnityEngine.UI.RawImage normalMapDisplay;
@@ -98,229 +116,332 @@ namespace Assets.Scripts
             }
 
             textureSize = new Vector2Int(resolution, resolution);
-            // 初始化 heightMap与normalMap
+            // 初始化
+            heightSlicesInt = new RenderTexture[MAX_REGIONS];
+            heightSlicesFloat = new RenderTexture[MAX_REGIONS];
+            heightSlicesTmp = new RenderTexture[MAX_REGIONS];
             heightMap = new RenderTexture[MAX_REGIONS];
             normalMap = new RenderTexture[MAX_REGIONS];
             displacementMap = new RenderTexture[MAX_REGIONS];
-            particleBuffers = new ComputeBuffer[MAX_REGIONS];
-            particleDirBuffers = new ComputeBuffer[MAX_REGIONS];
-            heightMapT2D = new Texture2D[MAX_REGIONS];
-            normalMapT2D = new Texture2D[MAX_REGIONS];
-            displacementMapT2D = new Texture2D[MAX_REGIONS];
+
             for (int i = 0; i < Math.Min(waveParticleRegions.Count, MAX_REGIONS); i++)
             {
-                waveParticleRegions[i].particles = new NativeList<WaveParticle>(Allocator.Persistent);
-                // HeightMap
-                heightMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat);
-                heightMap[i].enableRandomWrite = true;
-                heightMap[i].Create();
+                //waveParticleRegions[i].particles = new NativeList<WaveParticle>(Allocator.Persistent);
 
-                // NormalMap
-                normalMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
-                normalMap[i].enableRandomWrite = true;
-                normalMap[i].Create();
+                waveParticleRegions[i].InitBuckets(N_omega);
 
-                //DisplacementMap
-                displacementMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
-                displacementMap[i].enableRandomWrite = true;
-                displacementMap[i].Create();
-
-                heightMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RFloat, false);
-                normalMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RGBAFloat, false);
-                displacementMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RGFloat, false);
-
-                particleBuffers[i] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
-                particleDirBuffers[i] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
-            }
-
-            heightMaps = new NativeArray<float>[N_omega];
-            for (int b = 0; b < N_omega; b++) {
-                heightMaps[b] = new NativeArray<float>(resolution * resolution, Allocator.Persistent);
-            }
-                
-            heightMapTest = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RInt);
-            heightMapTest.enableRandomWrite = true;
-            heightMapTest.Create();
-            
-            if (heightMapComputeShader != null)
-            {
-                Debug.Log("有绑定 ComputeShader。");
-                if (heightMapComputeShader.HasKernel("CSMain")) { 
-                    Debug.Log("有csmain");
+                // Tex2DArray: RInt（粒子 splat 的累加目标）
+                heightSlicesInt[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RInt)
+                {
+                    volumeDepth = N_omega,
+                    dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                    enableRandomWrite = true
                 };
+                heightSlicesInt[i].Create();
+
+                // Tex2DArray: RFloat（滤波前/后的工作贴图）
+                heightSlicesFloat[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat)
+                {
+                    volumeDepth = N_omega,
+                    dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                    enableRandomWrite = true
+                };
+                heightSlicesFloat[i].Create();
+
+                heightSlicesTmp[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat)
+                {
+                    volumeDepth = N_omega,
+                    dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                    enableRandomWrite = true
+                };
+                heightSlicesTmp[i].Create();
+
+                heightMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat) { enableRandomWrite = true }; heightMap[i].Create();
+                normalMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; normalMap[i].Create();
+                displacementMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; displacementMap[i].Create();
+
+
+                // 每个 region 为每个桶准备粒子 buffer（复用，容量 MAX_PARTICLES）
+                if (particleBuffersPerBucket == null)
+                    particleBuffersPerBucket = new ComputeBuffer[MAX_REGIONS][];
+                particleBuffersPerBucket[i] = new ComputeBuffer[N_omega];
+                for (int b = 0; b < N_omega; b++)
+                    particleBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
             }
+
+            bucketCounts = new int[N_omega];
+            bucketRadii = new float[N_omega]; // 计算一次代表半径
+            for (int b = 0; b < N_omega; b++)
+            {
+                // 代表半径（按你的取样：ω_min + Δω*(b+0.5)）
+                float omega_p = wavesSettings.spectrums[0].peakOmega;
+                float omega_min = omega_p * 0.5f;
+                float omega_max = omega_p * 2.5f;
+                float delta_omega = (omega_max - omega_min) / N_omega;
+                float omega = omega_min + delta_omega * (b + 0.5f);
+                float k = omega * omega / wavesSettings.g;
+                bucketRadii[b] = Mathf.PI / k; // r = π/k
+            }
+
             fixedFrameCnt = 0;
             converter.Initialize(N_omega);
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
+
+            //测试用
+            _slicePreviewRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
+            _slicePreviewRT.Create();
         }
         public void FixedUpdate()
         {
             fixedFrameCnt++;
-            //Debug.Log("begin updating particles");
-            float deltaTime = Time.deltaTime;
-            //Debug.Log(deltaTime);
-            //float time = Time.time;
+            float dt = Time.deltaTime;
             particleCnt = 0;
+
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
-            oceanMaterial.SetFloat("_BlendRange",blendRange);
-            oceanMaterial.SetFloat("_BlendStrength",blendStrength);
-            
-            Graphics.SetRenderTarget(heightMapTest);
-            GL.Clear(false, true, Color.clear);
-            Graphics.SetRenderTarget(null);
-            for (int i = 0; i < waveParticleRegions.Count; i++)
+            oceanMaterial.SetFloat("_BlendRange", blendRange);
+            oceanMaterial.SetFloat("_BlendStrength", blendStrength);
+
+            for (int r = 0; r < waveParticleRegions.Count; r++)
             {
-                var region = waveParticleRegions[i];
-                // 按需生成新粒子（你的边缘逻辑）
-                /*var edgeParticles = converter.GenerateParticlesFromSpectrum(
-                            ws: wavesSettings,
-                            regionCenter: region.center,
-                            regionSize: region.size,
-                            sampleCount: sampleCount);*/
-                NativeList<WaveParticle> edgeParticles = converter.GenerateParticlesFromSpectrum(
-                            ws: wavesSettings,
-                            regionCenter: region.center,
-                            regionSize: region.size,
-                            N_omega: N_omega,
-                            N_theta: N_theta,
-                            deltaTime: deltaTime);
-                waveParticleRegions[i].particles.AddRange(edgeParticles.AsArray());
-                edgeParticles.Dispose();
-                // 1. 更新粒子 最卡
-                UpdateRegionParticles(i, deltaTime);
+                var region = waveParticleRegions[r];
 
-                // 2. 更新ComputeBuffer
-                UpdateRegionParticleBuffer(i);
+                // 0) 按需生成边界粒子（你原来的逻辑）
+                using (var edgeParticles = converter.GenerateParticlesFromSpectrum(
+                    ws: wavesSettings,
+                    regionCenter: region.center,
+                    regionSize: region.size,
+                    N_omega: N_omega,
+                    N_theta: N_theta,
+                    deltaTime: dt))
+                {
+                    AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
+                }
 
-                // 3. 发送到ComputeShader
-                //DispatchRegionComputeShader(i);
+                // 1) 更新粒子（分桶并行）
+                UpdateRegionParticlesBuckets(r, dt);
 
-                int kernel = SplatComputeShader.FindKernel("SplatParticles");
-                SplatComputeShader.SetBuffer(kernel, "_Particles", particleBuffers[i]);
-                SplatComputeShader.SetInt("_ParticleCount", particleCnt);
-                SplatComputeShader.SetTexture(kernel, "_HeightMap", heightMapTest);
-                SplatComputeShader.SetInts("_TexSize", resolution, resolution);
-                SplatComputeShader.SetVector("_RegionCenter", waveParticleRegions[i].center);
-                SplatComputeShader.SetVector("_RegionSize", waveParticleRegions[i].size);
-                int threadGroups = Mathf.CeilToInt((float)particleCnt / 64f); // 64和你的[numthreads(64,1,1)]一致
-                SplatComputeShader.Dispatch(kernel, threadGroups, 1, 1);
+                // 2) 剔除越界（简洁稳妥：主线程倒序删）
+                CullRegionBuckets(r);
+
+                // 3) 统计并上传每桶粒子（只传有效段）
+                UpdateRegionParticleBufferBuckets(r);
+
+                // 4) 清零该 region 的 RInt array
+                ClearArraySlices(heightSlicesInt[r], N_omega);
 
 
-                var debugResultBuffer = new ComputeBuffer(4, sizeof(int));
-                int[] initVals = { int.MaxValue, int.MinValue, 0, 0 };
-                debugResultBuffer.SetData(initVals);
-                int debugKernel = DebugComputeShader.FindKernel("DebugHeightMap");
-                DebugComputeShader.SetTexture(debugKernel, "_HeightMap", heightMapTest);  // 你的int纹理
-                DebugComputeShader.SetInts("_TexSize", resolution, resolution);
-                DebugComputeShader.SetBuffer(debugKernel, "_DebugResult", debugResultBuffer);
-                DebugComputeShader.Dispatch(debugKernel, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-                debugResultBuffer.GetData(debugOut);
+                // 5) Splat（每桶一次，写入对应 slice）
+                int kS = SplatBucketsCS.FindKernel("SplatBucket");
+                SplatBucketsCS.SetTexture(kS, "_HeightMapArray", heightSlicesInt[r]);
+                SplatBucketsCS.SetInts("_TexSize", resolution, resolution);
+                SplatBucketsCS.SetVector("_RegionCenter", region.center);
+                SplatBucketsCS.SetVector("_RegionSize", region.size);
 
+                for (int b = 0; b < N_omega; b++)
+                {
+                    int count = bucketCounts[b];
+                    if (count == 0) continue;
 
-                int kernel2 = Int2FloatComputeShader.FindKernel("IntToFloat");
-                Int2FloatComputeShader.SetTexture(kernel2, "Source", heightMapTest);
-                Int2FloatComputeShader.SetTexture(kernel2, "Dest", heightMap[i]);
-                Int2FloatComputeShader.SetInts("TexSize", resolution, resolution);
-                Int2FloatComputeShader.SetFloat("Scale", 1000f);
-                Int2FloatComputeShader.Dispatch(kernel2, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+                    SplatBucketsCS.SetBuffer(kS, "_Particles", particleBuffersPerBucket[r][b]);
+                    SplatBucketsCS.SetInt("_ParticleCount", count);
 
-                int kernel3 = Height2NormalComputeShader.FindKernel("CSMain");
-                Height2NormalComputeShader.SetTexture(kernel3, "HeightTex", heightMap[i]);
-                Height2NormalComputeShader.SetTexture(kernel3, "NormalTex", normalMap[i]);
+                    int rp = Mathf.CeilToInt(bucketRadii[b] / (region.size.x / resolution));
+                    SplatBucketsCS.SetInt("_RadiusPixels", rp);
+                    SplatBucketsCS.SetInt("_Slice", b);
+
+                    SplatBucketsCS.Dispatch(kS, Mathf.CeilToInt(count / 64f), 1, 1);
+                    particleCnt += count;
+                }
+
+                // 6) Int2Float（array 版本）
+                int kI2F = Int2FloatArrayCS.FindKernel("IntToFloatArray");
+                Int2FloatArrayCS.SetTexture(kI2F, "Source", heightSlicesInt[r]);
+                Int2FloatArrayCS.SetTexture(kI2F, "Dest", heightSlicesFloat[r]);
+                Int2FloatArrayCS.SetInts("TexSize", resolution, resolution);
+                Int2FloatArrayCS.SetFloat("Scale", 1000f);
+                Int2FloatArrayCS.SetInt("SliceCount", N_omega);
+                Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                // 7) 可分离滤波（对每个 slice：横→纵）
+                int kH = SeparableFilterCS.FindKernel("Horizontal");
+                int kV = SeparableFilterCS.FindKernel("Vertical");
+
+                SeparableFilterCS.SetInts("TexSize", resolution, resolution);
+                SeparableFilterCS.SetVector("RegionSize", region.size);
+
+                // Horizontal: read float array, write tmp array
+                SeparableFilterCS.SetTexture(kH, "InputArray", heightSlicesFloat[r]);
+                SeparableFilterCS.SetTexture(kH, "OutputArray", heightSlicesTmp[r]);
+
+                SeparableFilterCS.SetInts("TexSize", resolution, resolution);
+                SeparableFilterCS.SetVector("RegionSize", region.size);
+                SeparableFilterCS.SetTexture(kV, "InputArray", heightSlicesTmp[r]);
+                SeparableFilterCS.SetTexture(kV, "OutputArray", heightSlicesFloat[r]);
+
+                for (int b = 0; b < N_omega; b++)
+                {
+                    if (bucketCounts[b] == 0) continue;
+                    SeparableFilterCS.SetInt("Slice", b);
+                    SeparableFilterCS.SetFloat("RadiusWorld", bucketRadii[b]);
+                    SeparableFilterCS.Dispatch(kH, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                    SeparableFilterCS.SetInt("Slice", b);
+                    SeparableFilterCS.SetFloat("RadiusWorld", bucketRadii[b]);
+                    SeparableFilterCS.Dispatch(kV, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+                }
+
+                // 8) 合并 slices → heightMap[r]（float）
+                int kR = ReduceSlicesCS.FindKernel("SumSlices");
+                ReduceSlicesCS.SetTexture(kR, "_HeightMapArray", heightSlicesFloat[r]);
+                ReduceSlicesCS.SetTexture(kR, "_HeightMapOut", heightMap[r]);
+                ReduceSlicesCS.SetInts("_TexSize", resolution, resolution);
+                ReduceSlicesCS.SetInt("_SliceCount", N_omega);
+                ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                // 9) 法线
+                int kN = Height2NormalComputeShader.FindKernel("CSMain");
+                Height2NormalComputeShader.SetTexture(kN, "HeightTex", heightMap[r]);
+                Height2NormalComputeShader.SetTexture(kN, "NormalTex", normalMap[r]);
                 Height2NormalComputeShader.SetInts("TexSize", resolution, resolution);
-                Height2NormalComputeShader.Dispatch(kernel3, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+                Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
-                oceanMaterial.SetTexture($"_ParticleHeightMap{i}", heightMap[i]);
-                oceanMaterial.SetTexture($"_ParticleNormalMap{i}", normalMap[i]);
-                oceanMaterial.SetVector($"_RegionCenter{i}", waveParticleRegions[i].center);
-                oceanMaterial.SetVector($"_RegionSize{i}", waveParticleRegions[i].size);
+                // 10) 传材质
+                oceanMaterial.SetTexture($"_ParticleHeightMap{r}", heightMap[r]);
+                oceanMaterial.SetTexture($"_ParticleNormalMap{r}", normalMap[r]);
+                oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
+                oceanMaterial.SetVector($"_RegionSize{r}", region.size);
             }
 
+            // 看第0个region的第b个bucket
+            ShowBucketSlice(0, 0, heightMapDisplay);  // 直接复用已有的 RawImage 显示
 
-            //particleCnt = allParticles.Count();
-            if (heightMapDisplay != null)
-            { heightMapDisplay.texture = heightMap[0]; }
-            if (normalMapDisplay != null)
-            { normalMapDisplay.texture = normalMap[0]; }
-            if (displacementMapDisplay != null)
-            { displacementMapDisplay.texture = displacementMap[0]; }
-            
+            DebugSliceStats(0, 0);
         }
 
-        void UpdateRegionParticles(int idx, float deltaTime)
+        // 把新生成的粒子直接丢进对应的 bucket（在 FixedUpdate 里生成完后调用）
+        void AddEdgeParticlesToBuckets(int idx, NativeArray<WaveParticle> newParticles)
+        {
+            // 可选：确保 buckets 已初始化
+            if (waveParticleRegions[idx].buckets == null || waveParticleRegions[idx].buckets.Length != N_omega)
+                waveParticleRegions[idx].InitBuckets(N_omega);
+
+            for (int i = 0; i < newParticles.Length; i++)
+            {
+                var p = newParticles[i];
+                int b = Mathf.Clamp(p.bucketNum, 0, N_omega - 1);
+                waveParticleRegions[idx].buckets[b].Add(p);
+            }
+        }
+
+        // 只基于 buckets 做并行更新；不再“清空再从 particles 重建”
+        void UpdateRegionParticlesBuckets(int idx, float dt)
         {
             var region = waveParticleRegions[idx];
-            var particles = region.particles; // NativeList<WaveParticle>
-            int count = particles.Length;
-            if (count == 0) return;
 
-            // 并行Job更新
-            var updateJob = new WaveParticleUpdateJob
+            JobHandle deps = default;
+            for (int b = 0; b < N_omega; b++)
             {
-                particles = particles.AsArray(), // NativeArray
-                deltaTime = deltaTime,
-                planeSize = region.size.x,
-                oceanSize = oceanSize 
-            };
+                var arr = region.buckets[b].AsArray();   // 注意：只改值，不改长度
+                if (arr.Length == 0) continue;
 
-            var handle = updateJob.Schedule(count, 64);
-            handle.Complete();
-
-            // 主线程遍历移除越界粒子（只能主线程做）
-            for (int i = particles.Length - 1; i >= 0; i--)
-            {
-                var p = particles[i];
-                if (!region.Contains(p.position, p.radius))
-                    particles.RemoveAt(i);
+                var job = new WaveParticleUpdateJob
+                {
+                    particles = arr,
+                    deltaTime = dt,
+                    planeSize = region.size.x,
+                    oceanSize = oceanSize
+                };
+                deps = job.Schedule(arr.Length, 64, deps);
             }
-
-            particleCnt += particles.Length;
+            deps.Complete();
         }
 
 
-        void UpdateRegionParticleBuffer(int idx)
+        void CullRegionBuckets(int idx)
         {
-            int count = waveParticleRegions[idx].particles.Length;
-            /*if (particleBuffers[idx] != null)
+            var region = waveParticleRegions[idx];
+            for (int b = 0; b < N_omega; b++)
             {
-                particleBuffers[idx].Release();
-                particleDirBuffers[idx].Release();
+                var list = region.buckets[b];
+                for (int i = list.Length - 1; i >= 0; i--)
+                {
+                    var p = list[i];
+                    if (!region.Contains(p.position, p.radius))
+                        list.RemoveAt(i);
+                }
             }
-            if (count == 0)
-            {
-                particleBuffers[idx] = null;
-                particleDirBuffers[idx] = null;
-                return;
-            }*/
-            for (int i = 0; i < count; i++)
-            {
-                particleData[i] = waveParticleRegions[idx].particles[i].ToVector4();
-                particleDirData[i] = waveParticleRegions[idx].particles[i].ToVector2();
-            }
-            //particleBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 4);
-            particleBuffers[idx].SetData(particleData, 0, 0, count);
-            //particleDirBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 2);
-            //particleDirBuffers[idx].SetData(particleDirData, 0, 0, count);
-            
         }
-        void DispatchRegionComputeShader(int idx)
-        {
-            if (particleBuffers[idx] == null) return;
-            int kernel = heightMapComputeShader.FindKernel("CSMain");
-            heightMapComputeShader.SetTexture(kernel, "Result", heightMap[idx]);
-            heightMapComputeShader.SetTexture(kernel, "NormalResult", normalMap[idx]);
-            heightMapComputeShader.SetTexture(kernel, "DisplacementResult", displacementMap[idx]);
-            heightMapComputeShader.SetBuffer(kernel, "Particles", particleBuffers[idx]);
-            heightMapComputeShader.SetBuffer(kernel, "ParticlesDir", particleDirBuffers[idx]);
-            heightMapComputeShader.SetInts("TextureSize", resolution, resolution);
-            heightMapComputeShader.SetInt("ParticleCount", waveParticleRegions[idx].particles.Length);
-            heightMapComputeShader.SetVector("RegionCenter", waveParticleRegions[idx].center);
-            heightMapComputeShader.SetVector("RegionSize", waveParticleRegions[idx].size);
 
-            int groupsX = Mathf.CeilToInt(resolution / 8f);
-            int groupsY = Mathf.CeilToInt(resolution / 8f);
-            heightMapComputeShader.Dispatch(kernel, groupsX, groupsY, 1);
+        void UpdateRegionParticleBufferBuckets(int idx)
+        {
+            var region = waveParticleRegions[idx];
+            for (int b = 0; b < N_omega; b++)
+            {
+                int count = region.buckets[b].Length;
+                bucketCounts[b] = count;
+                if (count == 0) continue;
+
+                // 打包到复用数组（或改用 BeginWrite/EndWrite + NativeArray）
+                for (int i = 0; i < count; i++)
+                    particleData[i] = region.buckets[b][i].ToVector4();
+
+                particleBuffersPerBucket[idx][b].SetData(particleData, 0, 0, count);
+            }
+        }
+
+        static void ClearArraySlices(RenderTexture arrayRT, int sliceCount)
+        {
+            var prev = RenderTexture.active;
+            for (int s = 0; s < sliceCount; s++)
+            {
+                Graphics.SetRenderTarget(arrayRT, 0, CubemapFace.Unknown, s); // 绑定指定 slice
+                GL.Clear(clearDepth: false, clearColor: true, backgroundColor: Color.clear);
+            }
+            RenderTexture.active = prev;
+            Graphics.SetRenderTarget(null);
+        }
+
+        /// <summary>把某个region的heightSlicesFloat的第slice层显示到一个RawImage</summary>
+        public void ShowBucketSlice(int regionIndex, int sliceIndex, UnityEngine.UI.RawImage target)
+        {
+            if (target == null) return;
+
+            // 从 Array 拷贝到二维纹理（要求同分辨率同格式）
+            Graphics.CopyTexture(
+                heightSlicesFloat[regionIndex],    // src array
+                sliceIndex, 0,                     // srcElement(=slice), srcMip
+                _slicePreviewRT,                   // dst 2D
+                0, 0                               // dstElement(=0), dstMip
+            );
+
+            target.texture = _slicePreviewRT;
+        }
+
+        //debug
+        public void DebugSliceStats(int regionIndex, int sliceIndex)
+        {
+            // 先复制一份到 2D RT（避免直接从 Array 读回的麻烦）
+            Graphics.CopyTexture(heightSlicesFloat[regionIndex], sliceIndex, 0, _slicePreviewRT, 0, 0);
+
+            AsyncGPUReadback.Request(_slicePreviewRT, 0, request =>
+            {
+                if (request.hasError) { Debug.LogError("Readback failed"); return; }
+                var data = request.GetData<Vector4>(); 
+
+                double sum = 0;
+                float minv = float.PositiveInfinity, maxv = float.NegativeInfinity;
+                int n = data.Length;
+                for (int i = 0; i < n; i++)
+                {
+                    float v = data[i].y;
+                    if (v < minv) minv = v;
+                    if (v > maxv) maxv = v;
+                    sum += v;
+                }
+                double avg = sum / n;
+                Debug.Log($"[Slice Stats] region={regionIndex}, slice={sliceIndex}, min={minv:F6}, max={maxv:F6}, avg={avg:F6}");
+            });
         }
 
         private void OnDestroy()
@@ -541,7 +662,7 @@ namespace Assets.Scripts
                     omega = baseSpeed / radius, // 可根据波速和半径自定义
                     k = 2 * Mathf.PI / radius     // 可按半径对应的k算
                 };
-                waveParticleRegions[regionIdx].particles.Add(particle);
+                //waveParticleRegions[regionIdx].particles.Add(particle);
             }
         }
 

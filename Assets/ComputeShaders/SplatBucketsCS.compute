@@ -1,0 +1,42 @@
+﻿// SplatBucketsCS.compute (delta splat version)
+#pragma kernel SplatBucket
+
+StructuredBuffer<float4> _Particles;   // x,y=pos (world), z=height, w=radiusWorld
+uint _ParticleCount;
+
+RWTexture2DArray<int> _HeightMapArray; // RInt Array
+int2   _TexSize;
+float2 _RegionCenter, _RegionSize;
+int    _Slice;
+
+[numthreads(64, 1, 1)]
+void SplatBucket(uint3 id: SV_DispatchThreadID)
+{
+    uint idx = id.x; if (idx >= _ParticleCount) return;
+
+    float2 posW = _Particles[idx].xy;
+    float  h = _Particles[idx].z;
+
+    float2 rmin = _RegionCenter - 0.5 * _RegionSize;
+    float2 rmax = _RegionCenter + 0.5 * _RegionSize;
+
+    // world->uv->pixel
+    float2 uv = (posW - rmin) / (rmax - rmin);
+    float2 pxf = uv * _TexSize;        // float pixel coords
+    int2   p0 = (int2)floor(pxf);     // left-bottom
+    float2 f = pxf - (float2)p0;     // bilinear frac
+
+    // 2x2 bilinear distribute: (1-fx)(1-fy), fx(1-fy), (1-fx)fy, fx*fy
+    int3 dst; dst.z = _Slice;
+
+    int delta00 = (int)(h * (1.0 - f.x) * (1.0 - f.y)  * 1000.0);
+    int delta10 = (int)(h * (f.x) * (1.0 - f.y)  * 1000.0);
+    int delta01 = (int)(h * (1.0 - f.x) * (f.y)  * 1000.0);
+    int delta11 = (int)(h * (f.x) * (f.y)  * 1000.0);
+
+    // 边界检查 + 原子加
+    if (p0.x >= 0 && p0.y >= 0 && p0.x < _TexSize.x && p0.y < _TexSize.y) { dst.xy = p0;                InterlockedAdd(_HeightMapArray[dst], delta00); }
+    if (p0.x + 1 >= 0 && p0.y >= 0 && p0.x + 1 < _TexSize.x && p0.y < _TexSize.y) { dst.xy = p0 + int2(1, 0);    InterlockedAdd(_HeightMapArray[dst], delta10); }
+    if (p0.x >= 0 && p0.y + 1 >= 0 && p0.x < _TexSize.x && p0.y + 1 < _TexSize.y) { dst.xy = p0 + int2(0, 1);    InterlockedAdd(_HeightMapArray[dst], delta01); }
+    if (p0.x + 1 >= 0 && p0.y + 1 >= 0 && p0.x + 1 < _TexSize.x && p0.y + 1 < _TexSize.y) { dst.xy = p0 + int2(1, 1);    InterlockedAdd(_HeightMapArray[dst], delta11); }
+}
