@@ -13,28 +13,20 @@ namespace Assets.Scripts
 {
     public class WaveParticleSystem : MonoBehaviour
     {
-        //粒子数组
-        //private List<WaveParticle> particles;
-        public ComputeBuffer particleBuffer;
-        //private ComputeBuffer particleBuffer2;
-        public int fixedFrameCnt;
-        public int particleCnt;
+
 
         // 基础配置参数
+        [Header("基础参数")]
         [SerializeField]
+        public int fixedFrameCnt;
+        public int particleCnt;
         public List<WaveParticleRegion> waveParticleRegions;
-        //public List<WaveParticle> allParticles;
         public WavesSettings wavesSettings;
         public SpectrumToParticlesConverter converter = new SpectrumToParticlesConverter();
-        [Header("Wave Parameters")]
-        //public Vector2 windSpeed = new Vector2(5,0);
-        //public Vector2 swellSpeed = new Vector2(20, 0);
-        //[Range(0, 20)] public float windSpeed = 5f;
-        //[SerializeField] float waterDepth = 100f;
-        //[SerializeField] public float maxRadius= 20f;
-        //[SerializeField] public int layerCnt = 1;
-        [SerializeField] public int sampleCount = 100;
-        //[SerializeField] public float gravity = 9.81f;
+        [Header("最大渲染数量相关参数")]
+        [SerializeField] public int MAX_REGIONS = 3;
+        [SerializeField] public int MAX_PARTICLES = 1000000;
+        [Header("采样相关参数")]
         [SerializeField] public int N_omega = 8;
         [SerializeField] public int N_theta = 8;
         [SerializeField]
@@ -44,7 +36,6 @@ namespace Assets.Scripts
         [Tooltip("有义波高")]
         public float Hs = 3.0f;//有义波高，默认3m
         [SerializeField] float oceanSize = 100f;
-        [SerializeField] float fetchSize = 1000000f;
 
 
         [Header("Rendering")]
@@ -54,7 +45,6 @@ namespace Assets.Scripts
         [SerializeField] public ComputeShader DebugComputeShader;
         [SerializeField] public ComputeShader Height2NormalComputeShader;
         [SerializeField] public RenderTexture heightMapTest;
-        [SerializeField] public int MAX_REGIONS = 3;
         [SerializeField] public RenderTexture[] heightMap;
         [SerializeField] public RenderTexture[] normalMap;
         [SerializeField] public RenderTexture[] displacementMap;
@@ -68,6 +58,9 @@ namespace Assets.Scripts
         [SerializeField] public NativeArray<float>[] heightMaps;
 
         [SerializeField] Material oceanMaterial;
+
+        Vector4[] particleData;
+        Vector2[] particleDirData;
 
         MeshUtils.Element OceanCenter;
         [Header("Debug")]
@@ -94,14 +87,10 @@ namespace Assets.Scripts
         {
             
             Debug.Log("Graphics API: " + SystemInfo.graphicsDeviceType);
-            particleCnt = 0;
             Debug.Log("WaveParticleSystem Start called!");
-            //InitializeSimpleWave();
-            //particles.Clear();
-            //waveParticleRegions.Clear();
-            //allParticles.Clear();
-            //particles = GenerateParticlesBySpectrum();
-            //Debug.Log($"Generated {particles.Count} basic wave particles");
+            particleCnt = 0;
+            particleData = new Vector4[MAX_PARTICLES];
+            particleDirData = new Vector2[MAX_PARTICLES];
             Debug.Log($"Generated {waveParticleRegions.Count()} wave particle regions");
             if (waveParticleRegions.Count == 0)
             {
@@ -110,16 +99,6 @@ namespace Assets.Scripts
 
             textureSize = new Vector2Int(resolution, resolution);
             // 初始化 heightMap与normalMap
-            /*heightMap = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.RFloat);
-            heightMap.enableRandomWrite = true;
-            heightMap.filterMode = FilterMode.Trilinear;  // 或者 Bilinear
-            heightMap.wrapMode = TextureWrapMode.Clamp;
-            heightMap.Create();
-            normalMap = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.ARGBFloat);
-            normalMap.enableRandomWrite = true;
-            normalMap.filterMode = FilterMode.Trilinear;
-            normalMap.wrapMode = TextureWrapMode.Clamp;
-            normalMap.Create();*/
             heightMap = new RenderTexture[MAX_REGIONS];
             normalMap = new RenderTexture[MAX_REGIONS];
             displacementMap = new RenderTexture[MAX_REGIONS];
@@ -149,6 +128,9 @@ namespace Assets.Scripts
                 heightMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RFloat, false);
                 normalMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RGBAFloat, false);
                 displacementMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RGFloat, false);
+
+                particleBuffers[i] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
+                particleDirBuffers[i] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
             }
 
             heightMaps = new NativeArray<float>[N_omega];
@@ -300,7 +282,7 @@ namespace Assets.Scripts
         void UpdateRegionParticleBuffer(int idx)
         {
             int count = waveParticleRegions[idx].particles.Length;
-            if (particleBuffers[idx] != null)
+            /*if (particleBuffers[idx] != null)
             {
                 particleBuffers[idx].Release();
                 particleDirBuffers[idx].Release();
@@ -310,18 +292,17 @@ namespace Assets.Scripts
                 particleBuffers[idx] = null;
                 particleDirBuffers[idx] = null;
                 return;
-            }
-            Vector4[] particleData = new Vector4[count];
-            Vector2[] particleDirData = new Vector2[count];
+            }*/
             for (int i = 0; i < count; i++)
             {
                 particleData[i] = waveParticleRegions[idx].particles[i].ToVector4();
                 particleDirData[i] = waveParticleRegions[idx].particles[i].ToVector2();
             }
-            particleBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 4);
-            particleBuffers[idx].SetData(particleData);
-            particleDirBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 2);
-            particleDirBuffers[idx].SetData(particleDirData);
+            //particleBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 4);
+            particleBuffers[idx].SetData(particleData, 0, 0, count);
+            //particleDirBuffers[idx] = new ComputeBuffer(count, sizeof(float) * 2);
+            //particleDirBuffers[idx].SetData(particleDirData, 0, 0, count);
+            
         }
         void DispatchRegionComputeShader(int idx)
         {

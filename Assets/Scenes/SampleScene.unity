@@ -219,13 +219,13 @@ MonoBehaviour:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  sampleCount: 5
+  MAX_REGIONS: 3
+  MAX_PARTICLES: 1000000
   N_omega: 8
-  N_theta: 8
+  N_theta: 16
   Tp: 10
   Hs: 3
   oceanSize: 100
-  fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 83b3be39cba2502458208423702645e5,
     type: 3}
   SplatComputeShader: {fileID: 7200000, guid: e62ac8dd02e4237449b71a94a924b9a3, type: 3}
@@ -235,7 +235,6 @@ MonoBehaviour:
   Height2NormalComputeShader: {fileID: 7200000, guid: 1136da0994e98c844ba4763db661410b,
     type: 3}
   heightMapTest: {fileID: 0}
-  MAX_REGIONS: 3
   heightMap: []
   normalMap: []
   displacementMap: []
@@ -1397,13 +1396,13 @@ MonoBehaviour:
   particleCnt: 0
   waveParticleRegions: []
   wavesSettings: {fileID: 0}
-  sampleCount: 100
+  MAX_REGIONS: 3
+  MAX_PARTICLES: 1000000
   N_omega: 8
   N_theta: 8
   Tp: 10
   Hs: 3
   oceanSize: 100
-  fetchSize: 10000
   heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
     type: 3}
   SplatComputeShader: {fileID: 0}
@@ -1411,7 +1410,6 @@ MonoBehaviour:
   DebugComputeShader: {fileID: 0}
   Height2NormalComputeShader: {fileID: 0}
   heightMapTest: {fileID: 0}
-  MAX_REGIONS: 3
   heightMap: []
   normalMap: []
   displacementMap: []
