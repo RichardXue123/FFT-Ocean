@@ -221,13 +221,14 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 3
   MAX_PARTICLES: 200000
-  N_omega: 8
-  N_theta: 16
+  N_omega: 12
+  N_theta: 12
   Tp: 10
   Hs: 3
   oceanSize: 100
   heightSlicesInt: []
   heightSlicesFloat: []
+  heightSlicesTmp: []
   SplatBucketsCS: {fileID: 7200000, guid: 817e87485441e634cbcb4d3122ba784b, type: 3}
   Int2FloatArrayCS: {fileID: 7200000, guid: 51e2c33f888d815459f965830348a116, type: 3}
   SeparableFilterCS: {fileID: 7200000, guid: f038d171e651ea6469e994bda9aebf9d, type: 3}
@@ -1411,6 +1412,7 @@ MonoBehaviour:
   oceanSize: 100
   heightSlicesInt: []
   heightSlicesFloat: []
+  heightSlicesTmp: []
   SplatBucketsCS: {fileID: 0}
   Int2FloatArrayCS: {fileID: 0}
   SeparableFilterCS: {fileID: 0}

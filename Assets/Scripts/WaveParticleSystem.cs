@@ -140,7 +140,7 @@ namespace Assets.Scripts
                 heightSlicesInt[i].Create();
 
                 // Tex2DArray: RFloat（滤波前/后的工作贴图）
-                heightSlicesFloat[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat)
+                heightSlicesFloat[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat)
                 {
                     volumeDepth = N_omega,
                     dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
@@ -148,7 +148,7 @@ namespace Assets.Scripts
                 };
                 heightSlicesFloat[i].Create();
 
-                heightSlicesTmp[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat)
+                heightSlicesTmp[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat)
                 {
                     volumeDepth = N_omega,
                     dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
@@ -229,6 +229,9 @@ namespace Assets.Scripts
 
                 // 4) 清零该 region 的 RInt array
                 ClearArraySlices(heightSlicesInt[r], N_omega);
+
+                ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
+                ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
 
 
                 // 5) Splat（每桶一次，写入对应 slice）
@@ -314,9 +317,12 @@ namespace Assets.Scripts
             }
 
             // 看第0个region的第b个bucket
-            ShowBucketSlice(0, 0, heightMapDisplay);  // 直接复用已有的 RawImage 显示
+            //ShowBucketSlice(0, 0, heightMapDisplay);  // 直接复用已有的 RawImage 显示
 
-            DebugSliceStats(0, 0);
+            //DebugSliceStats(0, 0);
+            //DebugSliceStats(0, 1);
+            //DebugSliceStats(0, 2);
+            //DebugSliceStats(0, 3);
         }
 
         // 把新生成的粒子直接丢进对应的 bucket（在 FixedUpdate 里生成完后调用）
@@ -421,28 +427,46 @@ namespace Assets.Scripts
         //debug
         public void DebugSliceStats(int regionIndex, int sliceIndex)
         {
-            // 先复制一份到 2D RT（避免直接从 Array 读回的麻烦）
-            Graphics.CopyTexture(heightSlicesFloat[regionIndex], sliceIndex, 0, _slicePreviewRT, 0, 0);
+            // 创建临时 RFloat RT
+            var tmpRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat);
+            tmpRT.enableRandomWrite = false;
+            tmpRT.Create();
 
-            AsyncGPUReadback.Request(_slicePreviewRT, 0, request =>
+            // 拷贝指定 slice
+            Graphics.CopyTexture(heightSlicesFloat[regionIndex], sliceIndex, 0, tmpRT, 0, 0);
+
+            AsyncGPUReadback.Request(tmpRT, 0, request =>
             {
-                if (request.hasError) { Debug.LogError("Readback failed"); return; }
-                var data = request.GetData<Vector4>(); 
+                // 用完立刻释放
+                tmpRT.Release();
+                UnityEngine.Object.Destroy(tmpRT);
 
+                if (request.hasError)
+                {
+                    Debug.LogError("Readback failed");
+                    return;
+                }
+
+                var data = request.GetData<float>(); // 单通道直接用 float
                 double sum = 0;
-                float minv = float.PositiveInfinity, maxv = float.NegativeInfinity;
+                float minv = float.PositiveInfinity;
+                float maxv = float.NegativeInfinity;
                 int n = data.Length;
+
                 for (int i = 0; i < n; i++)
                 {
-                    float v = data[i].y;
+                    float v = data[i];
                     if (v < minv) minv = v;
                     if (v > maxv) maxv = v;
                     sum += v;
                 }
+
                 double avg = sum / n;
                 Debug.Log($"[Slice Stats] region={regionIndex}, slice={sliceIndex}, min={minv:F6}, max={maxv:F6}, avg={avg:F6}");
             });
         }
+
+
 
         private void OnDestroy()
         {

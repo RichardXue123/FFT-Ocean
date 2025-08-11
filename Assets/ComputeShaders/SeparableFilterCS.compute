@@ -2,105 +2,84 @@
 #pragma kernel Horizontal
 #pragma kernel Vertical
 
-// 横向 pass 的输出要作为纵向 pass 的输入
-// 两个 pass 都使用 float4：R=gradX, G=height, B=reserve, A=1
-Texture2DArray<float4>    InputArray;
-RWTexture2DArray<float4>  OutputArray;
+// 输入：原始“能量图”（脉冲/幅值都累在 .g）
+// Horizontal 时：读原图 -> 写 X 向结果
+// Vertical   时：读 X 向结果 -> 写最终高度
+Texture2DArray<float>    InputArray;
+RWTexture2DArray<float>  OutputArray;
 
-int2  TexSize;
-int   Slice;
-float2 RegionSize;     // (sx, sy) 世界尺寸
-float  RadiusWorld;    // 本 slice 半径(世界单位)
-
-// 位移缩放（顶点位移用）
-float  DispScale = 1.0f;
+int2   TexSize;           // (W,H)
+int    Slice;             // 当前 slice
+float2 RegionSize;        // (sx,sy) 世界尺寸
+float  RadiusWorld;       // 扩散半径 世界单位
 
 static const float PI = 3.14159265358979323846;
-
-// 限制最大 tap，避免超宽核退化为均值
-#define MAX_TAPS 128
 
 float texelWorldX() { return RegionSize.x / TexSize.x; }
 float texelWorldY() { return RegionSize.y / TexSize.y; }
 
 // ------------------------------
-// Horizontal: 计算 gradX 与 X 方向平滑后的 height
+// Horizontal: 只沿 X 做 raised-cosine 偶对称扩散
 // ------------------------------
 [numthreads(8, 8, 1)]
 void Horizontal(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= TexSize.x || id.y >= TexSize.y) return;
 
-    const float texelW = texelWorldX();
-    const float R = min(RadiusWorld, MAX_TAPS * texelW);
+    const float texW = texelWorldX();
+    const int   taps = int(RadiusWorld / texW);
 
-    // 中心采样（只用 G 通道作为强度/高度输入）
-    const float4 c0 = InputArray[int3(id.xy, Slice)];
-    float height = c0.g;    // 偶对称通道
-    float gradX = 0.0;     // 奇对称通道（横向斜率）
-
-    // 从 1 个 texel 开始步进直至半径
-    // off = 像素偏移，d 以“世界长度”步进，确保窗函数与物理半径一致
-    for (float d = texelW, off = 1.0; d < R; d += texelW, off += 1.0)
-    {
-        int2 pL = int2(max(int(id.x - off), 0), id.y);
-        int2 pR = int2(min(int(id.x + off), TexSize.x - 1), id.y);
-
-        float aL = InputArray[int3(pL, Slice)].g;
-        float aR = InputArray[int3(pR, Slice)].g;
-
-        // 余弦窗（偶对称核）与其导函数（奇对称核）对应的权重
-        float wc = 0.5 * (cos(PI * d / R) + 1.0);   // cosine raised window
-        float ws = -0.5 * sin(PI * d / R);          // 对应该窗的奇对称权重
-
-        // 偶对称：对称和 → 高度平滑
-        height += (aL + aR) * 0.5 * wc;
-
-        // 奇对称：对称差 → 斜率/位移分量
-        // 0.5 * (...) * 2.0 可化简为 1.0 * (...)，写显式便于和参考实现对照
-        gradX += (aL - aR) * 0.5 * wc * ws * 2.0;
+    // 中心值（d=0 时权重=1）
+    float h = InputArray[int3(id.xy, Slice)];
+    if (h == 0) {
+        return;
     }
+    OutputArray[int3(id.xy, Slice)] += h;
+    // 对称采样：左右各取 1..taps
+    [loop]
+    for (int off = 1; off <= taps; ++off)
+    {
+        float d = off * texW;
+        float wc = 0.5 * (cos(PI * d / RadiusWorld) + 1.0);  // raised-cosine
 
-    OutputArray[int3(id.xy, Slice)] = float4(gradX, height, 0.0, 1.0);
+        int2 pL = int2(max(id.x - off, 0), id.y);
+        int2 pR = int2(min(id.x + off, TexSize.x - 1), id.y);
+
+
+        OutputArray[int3(pL, Slice)] += h * wc;
+        OutputArray[int3(pR, Slice)] += h * wc;
+    }
+    //OutputArray[int3(id.xy, Slice)] = float4(0, h, 0, 1);
 }
 
 // ------------------------------
-// Vertical: 读取 (gradX,height)，再算 gradZ 与 Y 向平滑后的 height，输出 (disp.x,height,disp.y,1)
+// Vertical: 读取 X 结果，沿 Y 再做一次相同核 → 最终高度
 // ------------------------------
 [numthreads(8, 8, 1)]
 void Vertical(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= TexSize.x || id.y >= TexSize.y) return;
 
-    const float texelH = texelWorldY();
-    const float R = min(RadiusWorld, MAX_TAPS * texelH);
+    const float texH = texelWorldY();
+    const int   taps = int(RadiusWorld / texH);
 
-    // 读取横向 pass 的输出
-    const float4 ch = InputArray[int3(id.xy, Slice)];
-    float gradX = ch.r;
-    float heightV = ch.g;
-    float gradZ = 0.0;
+    // 中心值（d=0 时权重=1）
+    float h = InputArray[int3(id.xy, Slice)];
 
-    for (float d = texelH, off = 1.0; d < R; d += texelH, off += 1.0)
-    {
-        int2 pB = int2(id.x, max(int(id.y - off), 0));
-        int2 pT = int2(id.x, min(int(id.y + off), TexSize.y - 1));
-
-        float aB = InputArray[int3(pB, Slice)].g;
-        float aT = InputArray[int3(pT, Slice)].g;
-
-        float wc = 0.5 * (cos(PI * d / R) + 1.0);  // 偶对称权
-        float ws = -0.5 * sin(PI * d / R);         // 奇对称权
-
-        // 偶对称：Y 向平滑高度
-        heightV += (aB + aT) * 0.5 * wc;
-
-        // 奇对称：Y 向斜率/位移分量
-        gradZ += (aB - aT) * wc * ws;
+    if (h == 0) {
+        return;
     }
+    OutputArray[int3(id.xy, Slice)] += h;
+    [loop]
+    for (int off = 1; off <= taps; ++off)
+    {
+        float d = off * texH;
+        float wc = 0.5 * (cos(PI * d / RadiusWorld) + 1.0);
 
-    // 合成位移（你也可以 per-slice 设不同的 DispScale）
-    float2 disp = float2(gradX, gradZ) * DispScale;
+        int2 pB = int2(id.x, max(id.y - off, 0));
+        int2 pT = int2(id.x, min(id.y + off, TexSize.y - 1));
 
-    OutputArray[int3(id.xy, Slice)] = float4(disp.x, heightV, disp.y, 1.0);
+        OutputArray[int3(pB, Slice)] += h * wc;
+        OutputArray[int3(pT, Slice)] += h * wc;
+    }
 }
