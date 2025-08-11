@@ -51,7 +51,7 @@ namespace Assets.Scripts
         private ComputeBuffer[][] particleBuffersPerBucket; // [region][bucket]
         private int[] bucketCounts;                         // 复用计数缓存
         private float[] bucketRadii;                        // 每桶代表半径(世界单位)
-
+        private ComputeBuffer radiiBuf;
 
         [Header("Rendering")]
         [SerializeField] public ComputeShader heightMapComputeShader;
@@ -103,7 +103,7 @@ namespace Assets.Scripts
 
         public void Start()
         {
-            
+
             Debug.Log("Graphics API: " + SystemInfo.graphicsDeviceType);
             Debug.Log("WaveParticleSystem Start called!");
             particleCnt = 0;
@@ -160,7 +160,6 @@ namespace Assets.Scripts
                 normalMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; normalMap[i].Create();
                 displacementMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; displacementMap[i].Create();
 
-
                 // 每个 region 为每个桶准备粒子 buffer（复用，容量 MAX_PARTICLES）
                 if (particleBuffersPerBucket == null)
                     particleBuffersPerBucket = new ComputeBuffer[MAX_REGIONS][];
@@ -183,6 +182,9 @@ namespace Assets.Scripts
                 bucketRadii[b] = Mathf.PI / k; // r = π/k
             }
 
+            radiiBuf = new ComputeBuffer(N_omega, sizeof(float));
+            radiiBuf.SetData(bucketRadii);
+
             fixedFrameCnt = 0;
             converter.Initialize(N_omega);
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
@@ -192,7 +194,7 @@ namespace Assets.Scripts
             _slicePreviewRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
             _slicePreviewRT.Create();
         }
-        public void FixedUpdate()
+        public void Update()
         {
             fixedFrameCnt++;
             float dt = Time.deltaTime;
@@ -202,8 +204,11 @@ namespace Assets.Scripts
             oceanMaterial.SetFloat("_BlendRange", blendRange);
             oceanMaterial.SetFloat("_BlendStrength", blendStrength);
 
+            var sw = Stopwatch.StartNew();      // 等同于 new Stopwatch(); sw.Start();
+
             for (int r = 0; r < waveParticleRegions.Count; r++)
             {
+                sw.Restart();
                 var region = waveParticleRegions[r];
 
                 // 0) 按需生成边界粒子（你原来的逻辑）
@@ -218,21 +223,39 @@ namespace Assets.Scripts
                     AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
                 }
 
+                sw.Stop();
+                Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 1) 更新粒子（分桶并行）
                 UpdateRegionParticlesBuckets(r, dt);
+
+                sw.Stop();
+                Debug.Log($"Step 1 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 2) 剔除越界（简洁稳妥：主线程倒序删）
                 CullRegionBuckets(r);
 
+                sw.Stop();
+                Debug.Log($"Step 2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 3) 统计并上传每桶粒子（只传有效段）
                 UpdateRegionParticleBufferBuckets(r);
 
+                sw.Stop();
+                Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 4) 清零该 region 的 RInt array
                 ClearArraySlices(heightSlicesInt[r], N_omega);
+                //ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
+                //ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
 
-                ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
-                ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
-
+                sw.Stop();
+                Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 5) Splat（每桶一次，写入对应 slice）
                 int kS = SplatBucketsCS.FindKernel("SplatBucket");
@@ -257,6 +280,10 @@ namespace Assets.Scripts
                     particleCnt += count;
                 }
 
+                sw.Stop();
+                Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 6) Int2Float（array 版本）
                 int kI2F = Int2FloatArrayCS.FindKernel("IntToFloatArray");
                 Int2FloatArrayCS.SetTexture(kI2F, "Source", heightSlicesInt[r]);
@@ -266,33 +293,44 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.SetInt("SliceCount", N_omega);
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
-                // 7) 可分离滤波（对每个 slice：横→纵）
+                sw.Stop();
+                Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
+                // 7) 可分离滤波：一次 dispatch 处理所有 slices（Z 维）
                 int kH = SeparableFilterCS.FindKernel("Horizontal");
                 int kV = SeparableFilterCS.FindKernel("Vertical");
 
-                SeparableFilterCS.SetInts("TexSize", resolution, resolution);
-                SeparableFilterCS.SetVector("RegionSize", region.size);
-
-                // Horizontal: read float array, write tmp array
+                // X: floatArray -> tmp
                 SeparableFilterCS.SetTexture(kH, "InputArray", heightSlicesFloat[r]);
                 SeparableFilterCS.SetTexture(kH, "OutputArray", heightSlicesTmp[r]);
 
-                SeparableFilterCS.SetInts("TexSize", resolution, resolution);
-                SeparableFilterCS.SetVector("RegionSize", region.size);
+                // 绑定半径表（每 slice 不同）
+                SeparableFilterCS.SetBuffer(kH, "RadiiWorld", radiiBuf);
+                SeparableFilterCS.SetBuffer(kV, "RadiiWorld", radiiBuf);
+
+                // Y: tmp -> floatArray
                 SeparableFilterCS.SetTexture(kV, "InputArray", heightSlicesTmp[r]);
                 SeparableFilterCS.SetTexture(kV, "OutputArray", heightSlicesFloat[r]);
 
-                for (int b = 0; b < N_omega; b++)
-                {
-                    if (bucketCounts[b] == 0) continue;
-                    SeparableFilterCS.SetInt("Slice", b);
-                    SeparableFilterCS.SetFloat("RadiusWorld", bucketRadii[b]);
-                    SeparableFilterCS.Dispatch(kH, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+                SeparableFilterCS.SetInts("TexSize", resolution, resolution);
+                SeparableFilterCS.SetVector("RegionSize", region.size);
+                SeparableFilterCS.SetInt("SliceCount", N_omega);
 
-                    SeparableFilterCS.SetInt("Slice", b);
-                    SeparableFilterCS.SetFloat("RadiusWorld", bucketRadii[b]);
-                    SeparableFilterCS.Dispatch(kV, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-                }
+                int gx = Mathf.CeilToInt(resolution / 8f);
+                int gy = Mathf.CeilToInt(resolution / 8f);
+
+                // Horizontal 一次跑完所有 slices
+                SeparableFilterCS.Dispatch(kH, gx, gy, N_omega);
+
+                // 若要在 H 和 V 之间调试，可在此调用 EnqueueDebugSliceMax(heightSlicesTmp[r], b, ...)
+
+                // Vertical 一次跑完所有 slices
+                SeparableFilterCS.Dispatch(kV, gx, gy, N_omega);
+
+                sw.Stop();
+                Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 8) 合并 slices → heightMap[r]（float）
                 int kR = ReduceSlicesCS.FindKernel("SumSlices");
@@ -302,6 +340,10 @@ namespace Assets.Scripts
                 ReduceSlicesCS.SetInt("_SliceCount", N_omega);
                 ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
+                sw.Stop();
+                Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 9) 法线
                 int kN = Height2NormalComputeShader.FindKernel("CSMain");
                 Height2NormalComputeShader.SetTexture(kN, "HeightTex", heightMap[r]);
@@ -309,11 +351,18 @@ namespace Assets.Scripts
                 Height2NormalComputeShader.SetInts("TexSize", resolution, resolution);
                 Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
+                sw.Stop();
+                Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 10) 传材质
                 oceanMaterial.SetTexture($"_ParticleHeightMap{r}", heightMap[r]);
                 oceanMaterial.SetTexture($"_ParticleNormalMap{r}", normalMap[r]);
                 oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
+
+                sw.Stop();
+                Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
             }
 
             // 看第0个region的第b个bucket
@@ -466,6 +515,44 @@ namespace Assets.Scripts
             });
         }
 
+        // 调用示例：EnqueueDebugSliceMax(heightSlicesTmp[r], b, $"H r={r} b={b}");
+        //         或  EnqueueDebugSliceMax(heightSlicesFloat[r], b, $"V r={r} b={b}");
+        void EnqueueDebugSliceMax(RenderTexture arrayRT, int slice, string label)
+        {
+            // 复制该 slice → 临时 RFloat 2D
+            var tmpR = RenderTexture.GetTemporary(arrayRT.width, arrayRT.height, 0, RenderTextureFormat.RFloat);
+            Graphics.CopyTexture(arrayRT, slice, 0, tmpR, 0, 0);
+
+            // 异步读回并计算统计量
+            AsyncGPUReadback.Request(tmpR, 0, request =>
+            {
+                RenderTexture.ReleaseTemporary(tmpR);
+
+                if (request.hasError)
+                {
+                    Debug.LogError($"AsyncGPUReadback failed: {label}");
+                    return;
+                }
+
+                var data = request.GetData<float>();
+                double sum = 0;
+                float minv = float.PositiveInfinity;
+                float maxv = float.NegativeInfinity;
+
+                int n = data.Length;
+                for (int i = 0; i < n; i++)
+                {
+                    float v = data[i];
+                    if (v < minv) minv = v;
+                    if (v > maxv) maxv = v;
+                    sum += v;
+                }
+                double avg = sum / n;
+                float absMax = Mathf.Max(Mathf.Abs(minv), Mathf.Abs(maxv));
+
+                Debug.Log($"[SliceStats {label}] min={minv:F6}, max={maxv:F6}, absMax={absMax:F6}, avg={avg:F6}");
+            });
+        }
 
 
         private void OnDestroy()
@@ -570,7 +657,7 @@ namespace Assets.Scripts
             float μ = f > fp ? -2.5f : 5.0f;
             float sw = 16.0f * Mathf.Pow(f / fp, μ);
             float U = Mathf.Sqrt(ws.swell.windSpeed.x * ws.swell.windSpeed.x + ws.swell.windSpeed.y * ws.swell.windSpeed.y);
-            Vector2  swellDir = new Vector2(ws.swell.windSpeed.x / U, ws.swell.windSpeed.y / U);
+            Vector2 swellDir = new Vector2(ws.swell.windSpeed.x / U, ws.swell.windSpeed.y / U);
 
             //应用方向夹角修正
             float θ = Mathf.Atan2(dir.y, dir.x) - Mathf.Atan2(swellDir.y, swellDir.x);

@@ -1,85 +1,107 @@
-﻿// SeparableFilterCS.compute
+﻿// SeparableFilterCS.compute  (Z 维一次跑完所有 slice；每 slice 自己的半径)
+// 非归一化 + 边界补偿（避免边/角突变）
 #pragma kernel Horizontal
 #pragma kernel Vertical
 
-// 输入：原始“能量图”（脉冲/幅值都累在 .g）
-// Horizontal 时：读原图 -> 写 X 向结果
-// Vertical   时：读 X 向结果 -> 写最终高度
-Texture2DArray<float>    InputArray;
-RWTexture2DArray<float>  OutputArray;
+Texture2DArray<float>   InputArray;
+RWTexture2DArray<float> OutputArray;
 
-int2   TexSize;           // (W,H)
-int    Slice;             // 当前 slice
-float2 RegionSize;        // (sx,sy) 世界尺寸
-float  RadiusWorld;       // 扩散半径 世界单位
+int2   TexSize;       // (W,H)
+int    SliceCount;    // N_omega
+float2 RegionSize;    // (sx,sy)
+
+// 每个 slice 的卷积半径（世界单位），长度 = SliceCount
+StructuredBuffer<float> RadiiWorld;
 
 static const float PI = 3.14159265358979323846;
 
 float texelWorldX() { return RegionSize.x / TexSize.x; }
 float texelWorldY() { return RegionSize.y / TexSize.y; }
 
-// ------------------------------
-// Horizontal: 只沿 X 做 raised-cosine 偶对称扩散
-// ------------------------------
-[numthreads(8, 8, 1)]
-void Horizontal(uint3 id : SV_DispatchThreadID)
+float raisedCosine(float d, float R)
 {
-    if (id.x >= TexSize.x || id.y >= TexSize.y) return;
-
-    const float texW = texelWorldX();
-    const int   taps = int(RadiusWorld / texW);
-
-    // 中心值（d=0 时权重=1）
-    float h = InputArray[int3(id.xy, Slice)];
-    if (h == 0) {
-        return;
-    }
-    OutputArray[int3(id.xy, Slice)] += h;
-    // 对称采样：左右各取 1..taps
-    [loop]
-    for (int off = 1; off <= taps; ++off)
-    {
-        float d = off * texW;
-        float wc = 0.5 * (cos(PI * d / RadiusWorld) + 1.0);  // raised-cosine
-
-        int2 pL = int2(max(id.x - off, 0), id.y);
-        int2 pR = int2(min(id.x + off, TexSize.x - 1), id.y);
-
-
-        OutputArray[int3(pL, Slice)] += h * wc;
-        OutputArray[int3(pR, Slice)] += h * wc;
-    }
-    //OutputArray[int3(id.xy, Slice)] = float4(0, h, 0, 1);
+    if (R <= 0.0) return (d == 0.0) ? 1.0 : 0.0;
+    float ad = abs(d); if (ad > R) return 0.0;
+    return 0.5 * (cos(PI * d / R) + 1.0);
 }
 
-// ------------------------------
-// Vertical: 读取 X 结果，沿 Y 再做一次相同核 → 最终高度
-// ------------------------------
+// ---------------- X pass ----------------
 [numthreads(8, 8, 1)]
-void Vertical(uint3 id : SV_DispatchThreadID)
+void Horizontal(uint3 id: SV_DispatchThreadID)
 {
-    if (id.x >= TexSize.x || id.y >= TexSize.y) return;
+    if (id.x >= TexSize.x || id.y >= TexSize.y || id.z >= SliceCount) return;
 
-    const float texH = texelWorldY();
-    const int   taps = int(RadiusWorld / texH);
-
-    // 中心值（d=0 时权重=1）
-    float h = InputArray[int3(id.xy, Slice)];
-
-    if (h == 0) {
+    float R = RadiiWorld[id.z];
+    if (R <= 0.0)
+    {
+        OutputArray[int3(int2(id.xy), id.z)] = InputArray[int3(int2(id.xy), id.z)];
         return;
     }
-    OutputArray[int3(id.xy, Slice)] += h;
-    [loop]
-    for (int off = 1; off <= taps; ++off)
+
+    const float texW = texelWorldX();
+    int taps = max((int)floor(R / texW), 0);
+
+    // 完整核权重和（位置无关）
+    float w_full = 0.0;
+    [loop] for (int off = -taps; off <= taps; ++off)
     {
-        float d = off * texH;
-        float wc = 0.5 * (cos(PI * d / RadiusWorld) + 1.0);
-
-        int2 pB = int2(id.x, max(id.y - off, 0));
-        int2 pT = int2(id.x, min(id.y + off, TexSize.y - 1));
-
-        OutputArray[int3(pB, Slice)] += h * wc;
-        OutputArray[int3(pT, Slice)] += h * wc;
+        w_full += raisedCosine(abs(off) * texW, R);
     }
+
+    float sum = 0.0;
+    float w_edge = 0.0;
+    [loop] for (int off = -taps; off <= taps; ++off)
+    {
+        int sx = (int)id.x + off;
+        if (sx < 0 || sx >= TexSize.x) continue; // 不 clamp，越界跳过
+
+        float w = raisedCosine(abs(off) * texW, R);
+        if (w <= 0.0) continue;
+
+        sum += InputArray[int3(int2(sx, id.y), id.z)] * w;
+        w_edge += w;
+    }
+
+    float scale = (w_edge > 1e-8) ? (w_full / w_edge) : 1.0;
+    OutputArray[int3(int2(id.xy), id.z)] = sum * scale; // 非归一化 + 边界补偿
+}
+
+// ---------------- Y pass ----------------
+[numthreads(8, 8, 1)]
+void Vertical(uint3 id: SV_DispatchThreadID)
+{
+    if (id.x >= TexSize.x || id.y >= TexSize.y || id.z >= SliceCount) return;
+
+    float R = RadiiWorld[id.z];
+    if (R <= 0.0)
+    {
+        OutputArray[int3(int2(id.xy), id.z)] = InputArray[int3(int2(id.xy), id.z)];
+        return;
+    }
+
+    const float texH = texelWorldY();
+    int taps = max((int)floor(R / texH), 0);
+
+    float w_full = 0.0;
+    [loop] for (int off = -taps; off <= taps; ++off)
+    {
+        w_full += raisedCosine(abs(off) * texH, R);
+    }
+
+    float sum = 0.0;
+    float w_edge = 0.0;
+    [loop] for (int off = -taps; off <= taps; ++off)
+    {
+        int sy = (int)id.y + off;
+        if (sy < 0 || sy >= TexSize.y) continue;
+
+        float w = raisedCosine(abs(off) * texH, R);
+        if (w <= 0.0) continue;
+
+        sum += InputArray[int3(int2(id.x, sy), id.z)] * w;
+        w_edge += w;
+    }
+
+    float scale = (w_edge > 1e-8) ? (w_full / w_edge) : 1.0;
+    OutputArray[int3(int2(id.xy), id.z)] = sum * scale;
 }
