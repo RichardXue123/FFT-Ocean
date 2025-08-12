@@ -7,6 +7,37 @@ using UnityEngine;
 namespace Assets.Scripts
 {
     [BurstCompile]
+    public struct WaveParticleUpdateCullJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<WaveParticle> particles;          // 只读旧粒子
+        public NativeList<WaveParticle>.ParallelWriter survivors;       // 并行写回保留粒子
+
+        public float deltaTime;
+        public float planeSize;
+        public float oceanSize;
+
+        public Vector2 regionCenter;  // 用于Contains判断
+        public Vector2 regionHalf;    // = region.size * 0.5f
+
+        public void Execute(int index)
+        {
+            var p = particles[index];
+            // 位置更新
+            p.Update(deltaTime, planeSize, oceanSize);
+
+            // 越界剔除（含半径扩展）
+            float dx = Mathf.Abs(p.position.x - regionCenter.x);
+            float dy = Mathf.Abs(p.position.y - regionCenter.y);
+            bool inside = (dx <= regionHalf.x + p.radius) && (dy <= regionHalf.y + p.radius);
+
+            if (inside)
+            {
+                // 预先保证了容量，因此这里用 AddNoResize（线程安全且无锁扩容）
+                survivors.AddNoResize(p);
+            }
+        }
+    }
+    [BurstCompile]
     public struct WaveParticleUpdateJob : IJobParallelFor
     {
         public NativeArray<WaveParticle> particles;
@@ -76,34 +107,4 @@ namespace Assets.Scripts
         }
     }
 
-    [BurstCompile]
-    struct CullInPlaceJob : IJob
-    {
-        public NativeArray<WaveParticle> Particles; // buckets[b].AsArray()
-        public Vector2 RegionCenter;
-        public Vector2 RegionHalf;                  // region.size * 0.5f
-
-        // 写回新长度
-        public NativeArray<int> NewLength;          // 长度=1, TempJob
-
-        public void Execute()
-        {
-            int write = 0;
-            // 这里的“包含”等价于你原先的 region.Contains(pos, radius)
-            for (int i = 0; i < Particles.Length; i++)
-            {
-                var p = Particles[i];
-                float dx = Mathf.Abs(p.position.x - RegionCenter.x);
-                float dy = Mathf.Abs(p.position.y - RegionCenter.y);
-
-                // 给边界留半径的安全带：|x-center| <= half.x - r，y 同理
-                if (dx <= (RegionHalf.x - p.radius) && dy <= (RegionHalf.y - p.radius))
-                {
-                    if (write != i) Particles[write] = p;
-                    write++;
-                }
-            }
-            NewLength[0] = write;
-        }
-    }
 }

@@ -45,8 +45,8 @@ namespace Assets.Scripts
                 float k = omega * omega / ws.g;
                 float radius = Mathf.PI / k;
                 float phaseSpeed = Mathf.Sqrt(ws.g / k);
-                float batchSize = omega * omega * omega / (Mathf.PI * Mathf.PI * Mathf.PI * ws.g)
-                    * deltaTime * regionSize.x * 2f / delta_omega;
+                float batchSize = omega * omega * omega * deltaTime * regionSize.x * 2f / (Mathf.PI * Mathf.PI * Mathf.PI * ws.g);
+                //float batchSize = omega * deltaTime * regionSize.x * 2f / Mathf.PI;
                 //batchSize = 4;
                 //Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
                 // **小数累加与取整生成 batch**

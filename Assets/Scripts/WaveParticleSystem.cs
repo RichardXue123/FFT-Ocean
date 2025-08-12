@@ -194,7 +194,7 @@ namespace Assets.Scripts
             _slicePreviewRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
             _slicePreviewRT.Create();
         }
-        public void Update()
+        public void FixedUpdate()
         {
             fixedFrameCnt++;
             float dt = Time.deltaTime;
@@ -224,29 +224,21 @@ namespace Assets.Scripts
                 }
 
                 sw.Stop();
-                Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
-                // 1) 更新粒子（分桶并行）
+                // 1) 更新粒子（分桶并行） 2) 剔除越界（简洁稳妥：主线程倒序删）
                 UpdateRegionParticlesBuckets(r, dt);
 
                 sw.Stop();
-                Debug.Log($"Step 1 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
-                // 2) 剔除越界（简洁稳妥：主线程倒序删）
-                CullRegionBuckets(r);
-                //CullRegionBucketsJobified(r);
-
-                sw.Stop();
-                Debug.Log($"Step 2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 1 + 2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 3) 统计并上传每桶粒子（只传有效段）
                 UpdateRegionParticleBufferBuckets(r);
 
                 sw.Stop();
-                Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 4) 清零该 region 的 RInt array
@@ -255,7 +247,7 @@ namespace Assets.Scripts
                 //ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
 
                 sw.Stop();
-                Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 5) Splat（每桶一次，写入对应 slice）
@@ -282,7 +274,7 @@ namespace Assets.Scripts
                 }
 
                 sw.Stop();
-                Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 6) Int2Float（array 版本）
@@ -295,7 +287,7 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
                 sw.Stop();
-                Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 7) 可分离滤波：一次 dispatch 处理所有 slices（Z 维）
@@ -330,7 +322,7 @@ namespace Assets.Scripts
                 SeparableFilterCS.Dispatch(kV, gx, gy, N_omega);
 
                 sw.Stop();
-                Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 8) 合并 slices → heightMap[r]（float）
@@ -342,7 +334,7 @@ namespace Assets.Scripts
                 ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
                 sw.Stop();
-                Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 9) 法线
@@ -353,7 +345,7 @@ namespace Assets.Scripts
                 Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
                 sw.Stop();
-                Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
                 // 10) 传材质
@@ -363,7 +355,7 @@ namespace Assets.Scripts
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
                 sw.Stop();
-                Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                //Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
             }
 
             // 看第0个region的第b个bucket
@@ -391,7 +383,7 @@ namespace Assets.Scripts
         }
 
         // 只基于 buckets 做并行更新；不再“清空再从 particles 重建”
-        void UpdateRegionParticlesBuckets(int idx, float dt)
+        /*void UpdateRegionParticlesBuckets(int idx, float dt)
         {
             var region = waveParticleRegions[idx];
 
@@ -411,7 +403,7 @@ namespace Assets.Scripts
                 deps = job.Schedule(arr.Length, 64, deps);
             }
             deps.Complete();
-        }
+        }*/
 
 
         void CullRegionBuckets(int idx)
@@ -428,41 +420,49 @@ namespace Assets.Scripts
                 }
             }
         }
-        void CullRegionBucketsJobified(int idx)
+
+        void UpdateRegionParticlesBuckets(int idx, float dt)
         {
             var region = waveParticleRegions[idx];
-            var half = region.size * 0.5f;
+            var handles = new Unity.Collections.NativeArray<JobHandle>(N_omega, Allocator.Temp);
 
             for (int b = 0; b < N_omega; b++)
             {
-                var list = region.buckets[b];
-                int before = list.Length;
-                if (before == 0) continue;
+                var arr = region.buckets[b].AsArray();
+                int len = arr.Length;
 
-                // 只压缩前 before 段，AsArray() 返回的长度就是 before
-                var arr = list.AsArray();
-                var nlen = new NativeArray<int>(1, Allocator.TempJob);
+                // 即使 len == 0 也清一下 scratch，避免残留
+                region.EnsureScratchCapacity(b, len);
 
-                var job = new CullInPlaceJob
+                if (len == 0)
                 {
-                    Particles = arr,
-                    RegionCenter = region.center,
-                    RegionHalf = half,
-                    NewLength = nlen
+                    handles[b] = default;
+                    continue;
+                }
+
+                var job = new WaveParticleUpdateCullJob
+                {
+                    particles = arr,
+                    survivors = region.scratch[b].AsParallelWriter(),
+                    deltaTime = dt,
+                    planeSize = region.size.x,
+                    oceanSize = oceanSize,
+                    regionCenter = region.center,
+                    regionHalf = region.size * 0.5f
                 };
 
-                // 串行 IJob 就好（压缩逻辑很难并行），一个桶一次
-                var handle = job.Schedule();
-                handle.Complete();
-
-                int after = Math.Clamp(nlen[0], 0, before); // 防御
-                list.Length = after;                         // 关键：把新长度写回 NativeList
-                nlen.Dispose();
-
-                // 可选：快速诊断
-                // if (before > 0 && after == 0) Debug.LogWarning($"Cull wiped bucket {b}: before={before}, center={region.center}, half={half}");
+                // 每个 bucket 一条并行任务，批大小可按硬件调 64/128
+                handles[b] = job.Schedule(len, 64);
             }
+
+            JobHandle.CompleteAll(handles);
+            handles.Dispose();
+
+            // 零拷贝切换：scratch -> buckets
+            region.SwapBuckets();
         }
+
+
 
 
         void UpdateRegionParticleBufferBuckets(int idx)
@@ -594,12 +594,7 @@ namespace Assets.Scripts
 
         private void OnDestroy()
         {
-            foreach (var buf in particleBuffers)
-                if (buf != null) buf.Release();
-            foreach (var tex in heightMap)
-                if (tex != null) tex.Release();
-            foreach (var tex in normalMap)
-                if (tex != null) tex.Release();
+
         }
 
         /// <summary>
