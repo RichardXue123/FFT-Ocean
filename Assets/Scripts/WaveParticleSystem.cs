@@ -194,7 +194,7 @@ namespace Assets.Scripts
             _slicePreviewRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
             _slicePreviewRT.Create();
         }
-        public void FixedUpdate()
+        public void Update()
         {
             fixedFrameCnt++;
             float dt = Time.deltaTime;
