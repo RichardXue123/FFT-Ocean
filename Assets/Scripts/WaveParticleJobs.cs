@@ -7,6 +7,23 @@ using UnityEngine;
 namespace Assets.Scripts
 {
     [BurstCompile]
+    public struct WaveParticleUpdateJob : IJobParallelFor
+    {
+        public NativeArray<WaveParticle> particles;
+        public float deltaTime;
+        public float planeSize;
+        public float oceanSize;
+
+        public void Execute(int index)
+        {
+            //为什么需要取出再拷回？？
+            var p = particles[index];
+            p.Update(deltaTime, planeSize, oceanSize);
+            particles[index] = p;
+        }
+    }
+
+    [BurstCompile]
     public struct WaveParticleBilinearSplatJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<WaveParticle> particles;
@@ -21,7 +38,8 @@ namespace Assets.Scripts
         public void Execute(int i)
         {
             var p = particles[i];
-            if (p.bucketNum != this_bucket) {
+            if (p.bucketNum != this_bucket)
+            {
                 return;
             }
             Vector2 wPos = p.position;
@@ -58,4 +76,34 @@ namespace Assets.Scripts
         }
     }
 
+    [BurstCompile]
+    struct CullInPlaceJob : IJob
+    {
+        public NativeArray<WaveParticle> Particles; // buckets[b].AsArray()
+        public Vector2 RegionCenter;
+        public Vector2 RegionHalf;                  // region.size * 0.5f
+
+        // 写回新长度
+        public NativeArray<int> NewLength;          // 长度=1, TempJob
+
+        public void Execute()
+        {
+            int write = 0;
+            // 这里的“包含”等价于你原先的 region.Contains(pos, radius)
+            for (int i = 0; i < Particles.Length; i++)
+            {
+                var p = Particles[i];
+                float dx = Mathf.Abs(p.position.x - RegionCenter.x);
+                float dy = Mathf.Abs(p.position.y - RegionCenter.y);
+
+                // 给边界留半径的安全带：|x-center| <= half.x - r，y 同理
+                if (dx <= (RegionHalf.x - p.radius) && dy <= (RegionHalf.y - p.radius))
+                {
+                    if (write != i) Particles[write] = p;
+                    write++;
+                }
+            }
+            NewLength[0] = write;
+        }
+    }
 }

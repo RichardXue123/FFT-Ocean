@@ -236,6 +236,7 @@ namespace Assets.Scripts
 
                 // 2) 剔除越界（简洁稳妥：主线程倒序删）
                 CullRegionBuckets(r);
+                //CullRegionBucketsJobified(r);
 
                 sw.Stop();
                 Debug.Log($"Step 2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
@@ -427,6 +428,42 @@ namespace Assets.Scripts
                 }
             }
         }
+        void CullRegionBucketsJobified(int idx)
+        {
+            var region = waveParticleRegions[idx];
+            var half = region.size * 0.5f;
+
+            for (int b = 0; b < N_omega; b++)
+            {
+                var list = region.buckets[b];
+                int before = list.Length;
+                if (before == 0) continue;
+
+                // 只压缩前 before 段，AsArray() 返回的长度就是 before
+                var arr = list.AsArray();
+                var nlen = new NativeArray<int>(1, Allocator.TempJob);
+
+                var job = new CullInPlaceJob
+                {
+                    Particles = arr,
+                    RegionCenter = region.center,
+                    RegionHalf = half,
+                    NewLength = nlen
+                };
+
+                // 串行 IJob 就好（压缩逻辑很难并行），一个桶一次
+                var handle = job.Schedule();
+                handle.Complete();
+
+                int after = Math.Clamp(nlen[0], 0, before); // 防御
+                list.Length = after;                         // 关键：把新长度写回 NativeList
+                nlen.Dispose();
+
+                // 可选：快速诊断
+                // if (before > 0 && after == 0) Debug.LogWarning($"Cull wiped bucket {b}: before={before}, center={region.center}, half={half}");
+            }
+        }
+
 
         void UpdateRegionParticleBufferBuckets(int idx)
         {
@@ -751,7 +788,7 @@ namespace Assets.Scripts
 
             // deltaV 决定基础振幅、波动速度
             // 你可根据需要调整这些“物理参数”的线性系数
-            float K1 = 0.1f;
+            //float K1 = 0.1f;
             float baseAmplitude = deltaV * 0.03f; // 或直接 *某个缩放
             float baseSpeed = Mathf.Abs(deltaV) * 0.5f; // 越大越快
             float radius = baseSpeed * baseSpeed * Mathf.PI / wavesSettings.g; // 影响半径
