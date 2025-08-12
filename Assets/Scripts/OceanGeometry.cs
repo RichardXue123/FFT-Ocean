@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class OceanGeometry : MonoBehaviour
 {
@@ -91,7 +92,35 @@ public class OceanGeometry : MonoBehaviour
 
     private void Update()
     {
-        
+        //DebugDispHeight();
+    }
+    public void DebugDispHeight() {
+        var rt = wavesGenerator.cascade0.Displacement;
+
+        AsyncGPUReadback.Request(rt, 0, req =>
+        {
+            if (req.hasError) { Debug.LogError("[Disp] Readback failed"); return; }
+
+            // 每个像素是一个 Color( r,g,b,a )，你的高度在 g
+            var pixels = req.GetData<Color>();
+            int n = pixels.Length;
+
+            double sum = 0.0;
+            float minH = float.PositiveInfinity;
+            float maxH = float.NegativeInfinity;
+
+            for (int i = 0; i < n; i++)
+            {
+                float h = pixels[i].g;    // 高度 = G 通道
+                sum += h;
+                if (h < minH) minH = h;
+                if (h > maxH) maxH = h;
+            }
+
+            float mean = (float)(sum / n);
+
+            Debug.Log($"FFT [Disp] mean={mean:F6}  min={minH:F6}  max={maxH:F6}");
+        });
     }
 
     /*void UpdateMaterials()

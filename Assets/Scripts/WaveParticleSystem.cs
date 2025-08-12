@@ -337,6 +337,9 @@ namespace Assets.Scripts
                 //Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
+                // debug 高度图
+                EnqueueAverageHeightLogCPU(r);
+
                 // 9) 法线
                 int kN = Height2NormalComputeShader.FindKernel("CSMain");
                 Height2NormalComputeShader.SetTexture(kN, "HeightTex", heightMap[r]);
@@ -588,6 +591,35 @@ namespace Assets.Scripts
                 float absMax = Mathf.Max(Mathf.Abs(minv), Mathf.Abs(maxv));
 
                 Debug.Log($"[SliceStats {label}] min={minv:F6}, max={maxv:F6}, absMax={absMax:F6}, avg={avg:F6}");
+            });
+        }
+
+        void EnqueueAverageHeightLogCPU(int regionIdx)
+        {
+            var rt = heightMap[regionIdx]; // RFloat，单通道
+            int nPixels = rt.width * rt.height;
+
+            AsyncGPUReadback.Request(rt, 0, request =>
+            {
+                if (request.hasError)
+                {
+                    Debug.LogError($"[AvgHeight] Readback failed, region={regionIdx}");
+                    return;
+                }
+
+                var data = request.GetData<float>(); // RFloat：长度 = width*height
+                double sum = 0.0;
+                float minH = float.PositiveInfinity;
+                float maxH = float.NegativeInfinity;
+                for (int i = 0; i < data.Length; i++)
+                {
+                    sum += data[i];
+                    if (data[i] < minH) minH = data[i];
+                    if (data[i] > maxH) maxH = data[i];
+                }
+                float mean = (float)(sum / nPixels);
+
+                Debug.Log($"WP [AvgHeight][CPU] region={regionIdx} mean={mean:F6} min={minH:F6}  max={maxH:F6}");
             });
         }
 
