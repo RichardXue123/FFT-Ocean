@@ -221,8 +221,8 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 3
   MAX_PARTICLES: 200000
-  N_omega: 20
-  N_theta: 8
+  N_omega: 3
+  N_theta: 16
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -247,8 +247,8 @@ MonoBehaviour:
   displacementMap: []
   resolution: 256
   textureSize: {x: 512, y: 512}
-  blendRange: 0.2
-  blendStrength: 1
+  blendRange: 0
+  blendStrength: 0
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   debugOut: 00000000000000000000000000000000
   heightMapDisplay: {fileID: 1707354935}
@@ -804,7 +804,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &959523112
 MonoBehaviour:
   m_ObjectHideFlags: 0
