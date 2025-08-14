@@ -227,7 +227,7 @@ namespace Assets.Scripts
                 //Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
                 sw.Restart();
 
-                // 1) 更新粒子（分桶并行） 2) 剔除越界（简洁稳妥：主线程倒序删）
+                // 1) 更新粒子（分桶并行） 2) 剔除越界粒子
                 UpdateRegionParticlesBuckets(r, dt);
 
                 sw.Stop();
