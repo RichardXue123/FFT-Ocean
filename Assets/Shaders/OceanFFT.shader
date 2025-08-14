@@ -17,30 +17,32 @@
         _FoamScale("Foam Scale", Range(0,20)) = 1
         _ContactFoam("Contact Foam", Range(0,1)) = 1
 
-        _RegionCount("Region Count", Int) = 1
-        _ParticleHeightMap0("Wave Particle Height Map 0", 2D) = "black" {}
-        _ParticleNormalMap0("Wave Particle Normal Map 0", 2D) = "black" {}
-        _ParticleHeightMap1("Wave Particle Height Map 1", 2D) = "black" {}
-        _ParticleNormalMap1("Wave Particle Normal Map 1", 2D) = "black" {}
-        _ParticleHeightMap2("Wave Particle Height Map 2", 2D) = "black" {}
-        _ParticleNormalMap2("Wave Particle Normal Map 2", 2D) = "black" {}
-        _RegionCenter0("Region Center 0", Vector) = (0,0,0,0)
-        _RegionSize0("Region Size 0", Vector) = (0,0,0,0)
-        _RegionCenter1("Region Center 1", Vector) = (0,0,0,0)
-        _RegionSize1("Region Size 1", Vector) = (0,0,0,0)
-        _RegionCenter2("Region Center 2", Vector) = (0,0,0,0)
-        _RegionSize2("Region Size 2", Vector) = (0,0,0,0)
-        _BlendRange("Blend Range", Range(0,1)) = 0.2
-        _BlendStrength("Blend Strength", Range(0,1)) = 0.5
+            // —— 以下粒子相关属性保留以兼容材质，但不会被使用 ——
+            _RegionCount("Region Count", Int) = 1
+            _ParticleHeightMap0("Wave Particle Height Map 0", 2D) = "black" {}
+            _ParticleNormalMap0("Wave Particle Normal Map 0", 2D) = "black" {}
+            _ParticleHeightMap1("Wave Particle Height Map 1", 2D) = "black" {}
+            _ParticleNormalMap1("Wave Particle Normal Map 1", 2D) = "black" {}
+            _ParticleHeightMap2("Wave Particle Height Map 2", 2D) = "black" {}
+            _ParticleNormalMap2("Wave Particle Normal Map 2", 2D) = "black" {}
+            _RegionCenter0("Region Center 0", Vector) = (0,0,0,0)
+            _RegionSize0("Region Size 0", Vector) = (0,0,0,0)
+            _RegionCenter1("Region Center 1", Vector) = (0,0,0,0)
+            _RegionSize1("Region Size 1", Vector) = (0,0,0,0)
+            _RegionCenter2("Region Center 2", Vector) = (0,0,0,0)
+            _RegionSize2("Region Size 2", Vector) = (0,0,0,0)
+            _BlendRange("Blend Range", Range(0,1)) = 0.2
+            _BlendStrength("Blend Strength", Range(0,1)) = 0.5
 
-            // 以下三张纹理仍保留属性以兼容材质，但不会被采样使用
-            [HideInInspector]_Displacement_c0("Displacement C0", 2D) = "black" {}
-            [HideInInspector]_Derivatives_c0("Derivatives C0", 2D) = "black" {}
-            [HideInInspector]_Turbulence_c0("Turbulence C0", 2D) = "white" {}
+                // —— FFT 贴图（实际使用） ——
+                [HideInInspector]_Displacement_c0("Displacement C0", 2D) = "black" {}
+                [HideInInspector]_Derivatives_c0("Derivatives C0", 2D) = "black" {}
+                [HideInInspector]_Turbulence_c0("Turbulence C0", 2D) = "white" {}
     }
 
         SubShader
     {
+        // 原文件是 Queue=Transparent 但 RenderType=Opaque，这里沿用以保持排序表现
         Tags { "Queue" = "Transparent" "RenderType" = "Opaque" }
         LOD 200
 
@@ -58,65 +60,16 @@
             INTERNAL_DATA
         };
 
-    // ===== 波粒子相关 =====
-    int _RegionCount;
-    sampler2D _ParticleHeightMap0, _ParticleHeightMap1, _ParticleHeightMap2;
-    sampler2D _ParticleNormalMap0, _ParticleNormalMap1, _ParticleNormalMap2;
-    float4 _RegionCenter0, _RegionCenter1, _RegionCenter2;
-    float4 _RegionSize0, _RegionSize1, _RegionSize2;
-    float _ParticleHeightScale;
+    // ===== FFT 贴图 =====
+    sampler2D _Displacement_c0;
+    sampler2D _Derivatives_c0;
+    sampler2D _Turbulence_c0;
 
-    // 兼容保留
+    // ===== 仍保留的参数（与 SSS/LOD 等计算相关） =====
     float LengthScale0;
-    float _LOD_scale = 1.0f;
+    float _LOD_scale;
     float _SSSBase;
     float _SSSScale;
-
-    float _BlendRange;
-    float _BlendStrength;
-
-    // ===== 通用函数 =====
-    bool InRegion(float2 pos, float4 center, float4 size)
-    {
-        float2 halfSize = size.xy * 0.5;
-        float2 minv = center.xy - halfSize;
-        float2 maxv = center.xy + halfSize;
-        return (pos.x >= minv.x && pos.x <= maxv.x && pos.y >= minv.y && pos.y <= maxv.y);
-    }
-
-    int GetRegionIndex(float2 pos, out float2 regionUV)
-    {
-        if (_RegionCount > 0 && InRegion(pos, _RegionCenter0, _RegionSize0)) {
-            regionUV = (pos - _RegionCenter0.xy) / _RegionSize0.xy + 0.5;
-            return 0;
-        }
-        if (_RegionCount > 1 && InRegion(pos, _RegionCenter1, _RegionSize1)) {
-            regionUV = (pos - _RegionCenter1.xy) / _RegionSize1.xy + 0.5;
-            return 1;
-        }
-        if (_RegionCount > 2 && InRegion(pos, _RegionCenter2, _RegionSize2)) {
-            regionUV = (pos - _RegionCenter2.xy) / _RegionSize2.xy + 0.5;
-            return 2;
-        }
-        regionUV = float2(0,0);
-        return -1;
-    }
-
-    float ComputeRegionBlend(float2 pos, float4 center, float4 size, float blendRange)
-    {
-        float2 halfSize = size.xy * 0.5;
-        float2 boxMin = center.xy - halfSize;
-        float2 boxMax = center.xy + halfSize;
-
-        float2 deltaToMin = pos - boxMin;
-        float2 deltaToMax = boxMax - pos;
-        float2 insideDist = min(deltaToMin, deltaToMax);
-
-        float2 blendDist = max(blendRange * size.xy, 1e-5); // 避免除零
-        float2 edgeBlend = saturate(1.0 - insideDist / blendDist);
-
-        return max(edgeBlend.x, edgeBlend.y);
-    }
 
     void vert(inout appdata_full v, out Input o)
     {
@@ -127,29 +80,20 @@
         o.worldUV = worldPosXZ;
         o.viewVector = _WorldSpaceCameraPos - worldPos;
 
-        // ===== 仅使用波粒子位移，高度以 Region 为准；非 Region 区域保持平面 =====
-        float2 regionUV;
-        int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
-
+        // ===== 仅使用 FFT 位移 =====
         float3 displacement = 0;
-        if (regionIdx == 0) {
-            displacement.y = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
-        }
-        else if (regionIdx == 1) {
-            displacement.y = tex2Dlod(_ParticleHeightMap1, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
-        }
-        else if (regionIdx == 2) {
-            displacement.y = tex2Dlod(_ParticleHeightMap2, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
-        }
-        // else: displacement 为 0，平水面
+        displacement += tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0));
 
-        // SSS/LOD 等与位移相关的量清零/默认
-        o.lodScales = float4(0,0,1,0);
+        // SSS 相关（沿用原先逻辑）
+        float largeWavesBias = displacement.y;
+        o.lodScales = float4(0, 0, 1,
+            max(displacement.y - largeWavesBias * 0.8 - _SSSBase, 0) / _SSSScale);
 
-        // 将世界位移转换到物体空间叠加
+        // 应用位移（从世界到物体空间）
         v.vertex.xyz += mul(unity_WorldToObject, displacement);
     }
 
+    // ===== 材质参数 =====
     fixed4 _Color, _FoamColor, _SSSColor;
     float _SSSStrength;
     float _Roughness, _RoughnessScale, _MaxGloss;
@@ -158,9 +102,9 @@
     sampler2D _FoamTexture;
 
     float3 WorldToTangentNormalVector(Input IN, float3 normal) {
-        float3 t2w0 = WorldNormalVector(IN, float3(1,0,0));
-        float3 t2w1 = WorldNormalVector(IN, float3(0,1,0));
-        float3 t2w2 = WorldNormalVector(IN, float3(0,0,1));
+        float3 t2w0 = WorldNormalVector(IN, float3(1, 0, 0));
+        float3 t2w1 = WorldNormalVector(IN, float3(0, 1, 0));
+        float3 t2w2 = WorldNormalVector(IN, float3(0, 0, 1));
         float3x3 t2w = float3x3(t2w0, t2w1, t2w2);
         return normalize(mul(t2w, normal));
     }
@@ -171,27 +115,11 @@
     {
         float2 worldPosXZ = IN.worldUV;
 
-        // ===== 仅使用波粒子法线；非 Region 用平面法线 =====
-        float2 regionUV;
-        int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
-
-        // 不在任何 Region → 直接透明
-        if (regionIdx < 0) {
-            clip(-1); // 丢弃像素
-            return;
-        }
-
-        float3 worldNormal = float3(0,1,0);
-        if (regionIdx == 0) {
-            worldNormal = normalize(tex2D(_ParticleNormalMap0, regionUV).xyz * 2 - 1);
-        }
-        else if (regionIdx == 1) {
-            worldNormal = normalize(tex2D(_ParticleNormalMap1, regionUV).xyz * 2 - 1);
-        }
-        else if (regionIdx == 2) {
-            worldNormal = normalize(tex2D(_ParticleNormalMap2, regionUV).xyz * 2 - 1);
-        }
-        // 不再采样 _Derivatives_c0/_Displacement_c0，FFT 完全禁用
+        // ===== 仅使用 FFT 法线（由导数贴图推导） =====
+        float4 derivatives = tex2D(_Derivatives_c0, worldPosXZ / LengthScale0);
+        float2 slope = float2(derivatives.x / (1 + derivatives.z),
+                              derivatives.y / (1 + derivatives.w));
+        float3 worldNormal = normalize(float3(-slope.x, 1, -slope.y));
 
         o.Normal = WorldToTangentNormalVector(IN, worldNormal);
 
@@ -201,7 +129,8 @@
 
         float fresnel = pow5(saturate(1 - dot(worldNormal, viewDir)));
 
-        float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));
+        float distanceGloss = lerp(1 - _Roughness, _MaxGloss,
+                                   1 / (1 + length(IN.viewVector) * _RoughnessScale));
         o.Smoothness = distanceGloss;
         o.Metallic = 0;
 
