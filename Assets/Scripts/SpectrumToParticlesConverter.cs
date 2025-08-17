@@ -61,6 +61,7 @@ namespace Assets.Scripts
                         Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                         float S = JONSWAPSpectrum(omega, omega_p, dir, ws.local.windSpeed, ws.g, ws.depth, ws.local.fetch);
+                        //Debug.Log("omega: "+omega+" S: "+S + " delta_omega: "+delta_omega + " delta_theta: "+delta_theta);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
                         float amplitude = Mathf.Sqrt(2f * S * delta_omega * delta_theta);
@@ -115,6 +116,7 @@ namespace Assets.Scripts
             // 计算谱无方向部分 Sjw(ω)
             float α = 0.076f * Mathf.Pow((U * U) / (g * fetch), 0.22f);
             float γ = 3.3f;
+            //float γ = 7.0f * Mathf.Pow((g * fetch / U / U), -0.142f);
             float σ = (ω <= ωp) ? 0.07f : 0.09f;
             float r = Mathf.Exp(-Mathf.Pow((ω - ωp), 2f) / (2f * σ * σ * ωp * ωp));
             float S0 = (α * g * g) / Mathf.Pow(ω, 5f)
@@ -122,9 +124,9 @@ namespace Assets.Scripts
                      * Mathf.Pow(γ, r);
             if (float.IsNaN(S0) || float.IsInfinity(S0))
             {
-                //Debug.Log("S0: NaN");
+                //Debug.Log("S0: NaN"); , 
             }
-
+            //Debug.Log("omega: "+ ω+" S0: " +S0);
             // 有限深度 TMA 修正
             float ωh = ω * Mathf.Sqrt(depth / g);
             float TMA = ωh <= 1f
@@ -148,6 +150,7 @@ namespace Assets.Scripts
                 D = 0f;
             else
                 D = (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(cosHalfTheta, n);
+                //D = (n + 1f) / (2f * Mathf.Sqrt(Mathf.PI) * (n + 0.5f)) * Mathf.Pow(cosHalfTheta, n);
 
             if (float.IsNaN(D) || float.IsInfinity(D))
             {

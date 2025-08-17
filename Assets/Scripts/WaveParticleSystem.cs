@@ -338,7 +338,7 @@ namespace Assets.Scripts
                 sw.Restart();
 
                 // debug 高度图
-                EnqueueAverageHeightLogCPU(r);
+                //EnqueueAverageHeightLogCPU(r);
 
                 // 9) 法线
                 int kN = Height2NormalComputeShader.FindKernel("CSMain");

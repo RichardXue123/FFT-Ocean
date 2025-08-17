@@ -220,9 +220,9 @@ MonoBehaviour:
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 3
-  MAX_PARTICLES: 200000
-  N_omega: 20
-  N_theta: 8
+  MAX_PARTICLES: 500000
+  N_omega: 16
+  N_theta: 16
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -804,7 +804,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &959523112
 MonoBehaviour:
   m_ObjectHideFlags: 0
