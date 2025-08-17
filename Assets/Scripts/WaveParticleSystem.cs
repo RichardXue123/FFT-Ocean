@@ -79,6 +79,9 @@ namespace Assets.Scripts
 
         MeshUtils.Element OceanCenter;
         [Header("Debug")]
+        float curTime;
+        float prevTime;
+        float perTime;
         // 在类里缓存一个可复用的2D RT
         RenderTexture _slicePreviewRT;
 
@@ -196,8 +199,19 @@ namespace Assets.Scripts
         }
         public void Update()
         {
+            if (fixedFrameCnt == 0)
+            {
+                curTime = Time.time;
+                prevTime = Time.time;
+            }
             fixedFrameCnt++;
             float dt = Time.deltaTime;
+            if (fixedFrameCnt % 1000 ==0) {
+                curTime = Time.time;
+                perTime = (curTime - prevTime) / 1000.0f;
+                Debug.Log("time per frame: " + perTime);
+                prevTime = curTime;
+            }
             particleCnt = 0;
 
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);

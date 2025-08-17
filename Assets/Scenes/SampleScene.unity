@@ -219,10 +219,10 @@ MonoBehaviour:
   - center: {x: 0, y: 0}
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
-  MAX_REGIONS: 3
-  MAX_PARTICLES: 500000
-  N_omega: 16
-  N_theta: 16
+  MAX_REGIONS: 1
+  MAX_PARTICLES: 1000000
+  N_omega: 4
+  N_theta: 4
   Tp: 10
   Hs: 3
   oceanSize: 100
@@ -902,6 +902,7 @@ GameObject:
   - component: {fileID: 963194227}
   - component: {fileID: 963194226}
   - component: {fileID: 963194229}
+  - component: {fileID: 963194230}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1023,6 +1024,27 @@ MonoBehaviour:
     m_RotationOrder: 4
   rotationLerpTime: 0.01
   invertY: 0
+--- !u!114 &963194230
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 963194225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1ca949b3a1eb34d4da3befa98819ea65, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hotkey: 112
+  width: 3840
+  height: 2160
+  msaa: 1
+  transparentBackground: 1
+  includeUI: 0
+  subfolder: Captures
+  fileType: 0
+  jpgQuality: 95
 --- !u!1 &1133885655
 GameObject:
   m_ObjectHideFlags: 0

@@ -18,7 +18,7 @@ MonoBehaviour:
   local:
     scale: 1
     windSpeed: {x: 10, y: 0}
-    fetch: 10000
+    fetch: 20000
     spreadBlend: 1
     swell: 0
     peakEnhancement: 3.3
