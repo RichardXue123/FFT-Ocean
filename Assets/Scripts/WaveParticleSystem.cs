@@ -32,15 +32,20 @@ namespace Assets.Scripts
         [SerializeField] public int N_theta = 8;
 
         [Header("buckets相关参数")]
-        [SerializeField] public RenderTexture[] heightSlicesInt;   // Tex2DArray: RInt
-        [SerializeField] public RenderTexture[] heightSlicesFloat; // Tex2DArray: RFloat (滤波输入/输出)
-        [SerializeField] public RenderTexture[] heightSlicesTmp; // 滤波 ping-pong 用
+        private RenderTexture[] heightSlicesInt;   // Tex2DArray: RInt
+        private RenderTexture[] heightSlicesFloat; // Tex2DArray: RFloat (滤波输入/输出)
+        private RenderTexture[] heightSlicesTmp; // 滤波 ping-pong 用
+        private RenderTexture[] displacementSlices; // 横向分量 Tex2DArray：RGFloat
+        private RenderTexture[] velocityXSlicesInt; // 横向分量 X RFloat
+        private RenderTexture[] velocityYSlicesInt; // 横向分量 Y RFloat
+
         [SerializeField] public ComputeShader SplatBucketsCS;
         [SerializeField] public ComputeShader Int2FloatArrayCS;
         [SerializeField] public ComputeShader SeparableFilterCS;   // 横/纵两个kernel
         [SerializeField] public ComputeShader ReduceSlicesCS;      // 合并 slices → RFloat
 
         private ComputeBuffer[][] particleBuffersPerBucket; // [region][bucket]
+        private ComputeBuffer[][] particleVelBuffersPerBucket; // [region][bucket]
         private int[] bucketCounts;                         // 复用计数缓存
         private float[] bucketRadii;                        // 每桶代表半径(世界单位)
         private ComputeBuffer radiiBuf;
@@ -65,7 +70,7 @@ namespace Assets.Scripts
         [SerializeField] Material oceanMaterial;
 
         Vector4[] particleData;
-        Vector2[] particleDirData;
+        Vector2[] particleVelData;
 
         [Header("Debug")]
         float curTime;
@@ -100,7 +105,7 @@ namespace Assets.Scripts
             Debug.Log("WaveParticleSystem Start called!");
             particleCnt = 0;
             particleData = new Vector4[MAX_PARTICLES];
-            particleDirData = new Vector2[MAX_PARTICLES];
+            particleVelData = new Vector2[MAX_PARTICLES];
             Debug.Log($"Generated {waveParticleRegions.Count()} wave particle regions");
             if (waveParticleRegions.Count == 0)
             {
@@ -114,6 +119,8 @@ namespace Assets.Scripts
             heightSlicesTmp = new RenderTexture[MAX_REGIONS];
             heightMap = new RenderTexture[MAX_REGIONS];
             normalMap = new RenderTexture[MAX_REGIONS];
+            velocityXSlicesInt = new RenderTexture[MAX_PARTICLES];
+            velocityYSlicesInt = new RenderTexture[MAX_PARTICLES];
             displacementMap = new RenderTexture[MAX_REGIONS];
 
             for (int i = 0; i < Math.Min(waveParticleRegions.Count, MAX_REGIONS); i++)
@@ -148,6 +155,28 @@ namespace Assets.Scripts
                 };
                 heightSlicesTmp[i].Create();
 
+                velocityXSlicesInt[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RInt)
+                {
+                    volumeDepth = N_omega,
+                    dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                    enableRandomWrite = true
+                };
+                velocityXSlicesInt[i].Create();
+
+                velocityYSlicesInt[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RInt)
+                {
+                    volumeDepth = N_omega,
+                    dimension = UnityEngine.Rendering.TextureDimension.Tex2DArray,
+                    enableRandomWrite = true
+                };
+                velocityYSlicesInt[i].Create();
+
+                displacementMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RGFloat)
+                {
+                    enableRandomWrite = true
+                };
+                displacementMap[i].Create();
+
                 heightMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.RFloat) { enableRandomWrite = true }; heightMap[i].Create();
                 normalMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; normalMap[i].Create();
                 displacementMap[i] = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat) { enableRandomWrite = true }; displacementMap[i].Create();
@@ -156,8 +185,16 @@ namespace Assets.Scripts
                 if (particleBuffersPerBucket == null)
                     particleBuffersPerBucket = new ComputeBuffer[MAX_REGIONS][];
                 particleBuffersPerBucket[i] = new ComputeBuffer[N_omega];
-                for (int b = 0; b < N_omega; b++)
+
+                if (particleVelBuffersPerBucket == null)
+                    particleVelBuffersPerBucket = new ComputeBuffer[MAX_REGIONS][];
+                particleVelBuffersPerBucket[i] = new ComputeBuffer[N_omega];
+
+                for (int b = 0; b < N_omega; b++) {
                     particleBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
+                    particleVelBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
+                }
+
             }
 
             bucketCounts = new int[N_omega];
@@ -244,13 +281,22 @@ namespace Assets.Scripts
                 SplatBucketsCS.SetInts("_TexSize", resolution, resolution);
                 SplatBucketsCS.SetVector("_RegionCenter", region.center);
                 SplatBucketsCS.SetVector("_RegionSize", region.size);
+                
+                // Splat Vel for interact
+                int kSV = SplatBucketsCS.FindKernel("SplatVelocityBucket");
+                SplatBucketsCS.SetTexture(kSV, "_VelocityXMapArray", velocityXSlicesInt[r]);
+                SplatBucketsCS.SetTexture(kSV, "_VelocityYMapArray", velocityYSlicesInt[r]);
+                SplatBucketsCS.SetInts("_TexSize", resolution, resolution);
 
                 for (int b = 0; b < N_omega; b++)
                 {
                     int count = bucketCounts[b];
                     if (count == 0) continue;
 
-                    SplatBucketsCS.SetBuffer(kS, "_Particles", particleBuffersPerBucket[r][b]);
+                    SplatBucketsCS.SetBuffer(kS,"_Particles", particleBuffersPerBucket[r][b]);
+                    //SplatBucketsCS.SetBuffer(kSV, "_Particles", particleBuffersPerBucket[r][b]);
+                    SplatBucketsCS.SetBuffer(kSV, "_Velocities", particleVelBuffersPerBucket[r][b]);
+
                     SplatBucketsCS.SetInt("_ParticleCount", count);
 
                     int rp = Mathf.CeilToInt(bucketRadii[b] / (region.size.x / resolution));
@@ -258,6 +304,7 @@ namespace Assets.Scripts
                     SplatBucketsCS.SetInt("_Slice", b);
 
                     SplatBucketsCS.Dispatch(kS, Mathf.CeilToInt(count / 64f), 1, 1);
+                    SplatBucketsCS.Dispatch(kSV, Mathf.CeilToInt(count / 64f), 1, 1);
                     particleCnt += count;
                 }
 
@@ -269,6 +316,13 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.SetFloat("Scale", 1000f);
                 Int2FloatArrayCS.SetInt("SliceCount", N_omega);
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                // int2float for vel
+                int kV2F = Int2FloatArrayCS.FindKernel("IntToFloatArrayVelocity");
+                Int2FloatArrayCS.SetTexture(kV2F, "SourceVelX", velocityXSlicesInt[r]);
+                Int2FloatArrayCS.SetTexture(kV2F, "SourceVelY", velocityYSlicesInt[r]);
+                Int2FloatArrayCS.SetTexture(kV2F, "DestVel", displacementMap[r]); // RGFloat
+                Int2FloatArrayCS.Dispatch(kV2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
                 // 7) 可分离滤波：一次 dispatch 处理所有 slices（Z 维）
                 int kH = SeparableFilterCS.FindKernel("Horizontal");
@@ -402,10 +456,12 @@ namespace Assets.Scripts
                 if (count == 0) continue;
 
                 // 打包到复用数组（或改用 BeginWrite/EndWrite + NativeArray）
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < count; i++) {
                     particleData[i] = region.buckets[b][i].ToVector4();
-
+                    particleVelData[i] = region.buckets[b][i].GetVelocity();
+                }
                 particleBuffersPerBucket[idx][b].SetData(particleData, 0, 0, count);
+                particleVelBuffersPerBucket[idx][b].SetData(particleVelData, 0, 0, count);
             }
         }
 

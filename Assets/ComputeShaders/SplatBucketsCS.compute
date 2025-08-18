@@ -1,10 +1,14 @@
 ﻿// SplatBucketsCS.compute (delta splat version)
 #pragma kernel SplatBucket
+#pragma kernel SplatVelocityBucket
 
 StructuredBuffer<float4> _Particles;   // x,y=pos (world), z=height, w=radiusWorld
+StructuredBuffer<float2> _Velocities;  // 粒子的速度
 uint _ParticleCount;
 
 RWTexture2DArray<int> _HeightMapArray; // RInt Array
+RWTexture2DArray<int> _VelocityXMapArray;
+RWTexture2DArray<int> _VelocityYMapArray;
 int2   _TexSize;
 float2 _RegionCenter, _RegionSize;
 int    _Slice;
@@ -39,4 +43,57 @@ void SplatBucket(uint3 id: SV_DispatchThreadID)
     if (p0.x + 1 >= 0 && p0.y >= 0 && p0.x + 1 < _TexSize.x && p0.y < _TexSize.y) { dst.xy = p0 + int2(1, 0);    InterlockedAdd(_HeightMapArray[dst], delta10); }
     if (p0.x >= 0 && p0.y + 1 >= 0 && p0.x < _TexSize.x && p0.y + 1 < _TexSize.y) { dst.xy = p0 + int2(0, 1);    InterlockedAdd(_HeightMapArray[dst], delta01); }
     if (p0.x + 1 >= 0 && p0.y + 1 >= 0 && p0.x + 1 < _TexSize.x && p0.y + 1 < _TexSize.y) { dst.xy = p0 + int2(1, 1);    InterlockedAdd(_HeightMapArray[dst], delta11); }
+}
+
+[numthreads(64, 1, 1)]
+void SplatVelocityBucket(uint3 id: SV_DispatchThreadID)
+{
+    uint idx = id.x; if (idx >= _ParticleCount) return;
+
+    float2 posW = _Particles[idx].xy;
+    float2 vel = _Velocities[idx];
+
+    float2 rmin = _RegionCenter - 0.5 * _RegionSize;
+    float2 rmax = _RegionCenter + 0.5 * _RegionSize;
+
+    float2 uv = (posW - rmin) / (rmax - rmin);
+    float2 pxf = uv * _TexSize;
+    int2   p0 = (int2)floor(pxf);
+    float2 f = pxf - (float2)p0;
+
+    const float velScale = 1000.0;
+    int2 velInt = int2(vel * velScale);
+
+    float w00 = (1.0 - f.x) * (1.0 - f.y);
+    float w10 = (f.x) * (1.0 - f.y);
+    float w01 = (1.0 - f.x) * (f.y);
+    float w11 = (f.x) * (f.y);
+
+    int3 dst; dst.z = _Slice;
+
+    int2 d00 = int2(velInt.x * w00, velInt.y * w00);
+    int2 d10 = int2(velInt.x * w10, velInt.y * w10);
+    int2 d01 = int2(velInt.x * w01, velInt.y * w01);
+    int2 d11 = int2(velInt.x * w11, velInt.y * w11);
+
+    if (p0.x >= 0 && p0.y >= 0 && p0.x < _TexSize.x && p0.y < _TexSize.y) {
+        dst.xy = p0;
+        InterlockedAdd(_VelocityXMapArray[dst], d00.x);
+        InterlockedAdd(_VelocityYMapArray[dst], d00.y);
+    }
+    if (p0.x + 1 >= 0 && p0.y >= 0 && p0.x + 1 < _TexSize.x && p0.y < _TexSize.y) {
+        dst.xy = p0 + int2(1, 0);
+        InterlockedAdd(_VelocityXMapArray[dst], d10.x);
+        InterlockedAdd(_VelocityYMapArray[dst], d10.y);
+    }
+    if (p0.x >= 0 && p0.y + 1 >= 0 && p0.x < _TexSize.x && p0.y + 1 < _TexSize.y) {
+        dst.xy = p0 + int2(0, 1);
+        InterlockedAdd(_VelocityXMapArray[dst], d01.x);
+        InterlockedAdd(_VelocityYMapArray[dst], d01.y);
+    }
+    if (p0.x + 1 >= 0 && p0.y + 1 >= 0 && p0.x + 1 < _TexSize.x && p0.y + 1 < _TexSize.y) {
+        dst.xy = p0 + int2(1, 1);
+        InterlockedAdd(_VelocityXMapArray[dst], d11.x);
+        InterlockedAdd(_VelocityYMapArray[dst], d11.y);
+    }
 }

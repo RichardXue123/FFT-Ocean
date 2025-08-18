@@ -61,5 +61,9 @@ namespace Assets.Scripts
         {
             return new Vector2(direction.x, direction.y);
         }
+        public Vector2 GetVelocity()
+        {
+            return direction * speed;
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿// Int2FloatArrayCS.compute
 #pragma kernel IntToFloatArray
+#pragma kernel IntToFloatArrayVelocity
 Texture2DArray<int>  Source;
 RWTexture2DArray<float> Dest;
 int2 TexSize;
@@ -14,4 +15,23 @@ void IntToFloatArray(uint3 id:SV_DispatchThreadID)
         int v = Source[int3(id.xy, s)];
         Dest[int3(id.xy, s)] = v / Scale;
     }
+}
+
+Texture2DArray<int>  SourceVelX;
+Texture2DArray<int>  SourceVelY;
+RWTexture2D<float2> DestVel;   // RGFloat
+
+[numthreads(8, 8, 1)]
+void IntToFloatArrayVelocity(uint3 id:SV_DispatchThreadID)
+{
+    if (id.x >= TexSize.x || id.y >= TexSize.y) return;
+
+    float2 sumVel = 0;
+    for (int s = 0; s < SliceCount; ++s) {
+        int vx = SourceVelX[int3(id.xy, s)];
+        int vy = SourceVelY[int3(id.xy, s)];
+        sumVel += float2(vx, vy) / Scale;
+    }
+
+    DestVel[id.xy] = sumVel;
 }
