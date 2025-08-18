@@ -30,13 +30,6 @@ namespace Assets.Scripts
         [Header("采样相关参数")]
         [SerializeField] public int N_omega = 8;
         [SerializeField] public int N_theta = 8;
-        [SerializeField]
-        [Tooltip("峰值周期")]
-        public float Tp = 3.8f;//Tp
-        [SerializeField]
-        [Tooltip("有义波高")]
-        public float Hs = 3.0f;//有义波高，默认3m
-        [SerializeField] float oceanSize = 100f;
 
         [Header("buckets相关参数")]
         [SerializeField] public RenderTexture[] heightSlicesInt;   // Tex2DArray: RInt
@@ -47,7 +40,6 @@ namespace Assets.Scripts
         [SerializeField] public ComputeShader SeparableFilterCS;   // 横/纵两个kernel
         [SerializeField] public ComputeShader ReduceSlicesCS;      // 合并 slices → RFloat
 
-
         private ComputeBuffer[][] particleBuffersPerBucket; // [region][bucket]
         private int[] bucketCounts;                         // 复用计数缓存
         private float[] bucketRadii;                        // 每桶代表半径(世界单位)
@@ -57,27 +49,24 @@ namespace Assets.Scripts
         [SerializeField] public ComputeShader heightMapComputeShader;
         [SerializeField] public ComputeShader SplatComputeShader;
         [SerializeField] public ComputeShader Int2FloatComputeShader;
-        [SerializeField] public ComputeShader DebugComputeShader;
         [SerializeField] public ComputeShader Height2NormalComputeShader;
-        [SerializeField] public RenderTexture heightMapTest;
         [SerializeField] public RenderTexture[] heightMap;
         [SerializeField] public RenderTexture[] normalMap;
         [SerializeField] public RenderTexture[] displacementMap;
-        [SerializeField] public ComputeBuffer[] particleBuffers;
-        [SerializeField] public ComputeBuffer[] particleDirBuffers;
+        //[SerializeField] public ComputeBuffer[] particleBuffers;
+        //[SerializeField] public ComputeBuffer[] particleDirBuffers;
         [SerializeField] public int resolution = 256;
         [SerializeField] public Vector2Int textureSize = new Vector2Int(256, 256);
         [SerializeField] public float blendRange = 0.2f;
         [SerializeField] public float blendStrength = 0.5f;
-        //[SerializeField] float planeSize = 10f;
-        [SerializeField] public NativeArray<float>[] heightMaps;
+        [SerializeField] public float oceanSize = 100f;
+        //[SerializeField] public NativeArray<float>[] heightMaps;
 
         [SerializeField] Material oceanMaterial;
 
         Vector4[] particleData;
         Vector2[] particleDirData;
 
-        MeshUtils.Element OceanCenter;
         [Header("Debug")]
         float curTime;
         float prevTime;
@@ -85,7 +74,7 @@ namespace Assets.Scripts
         // 在类里缓存一个可复用的2D RT
         RenderTexture _slicePreviewRT;
 
-        public int[] debugOut = new int[4];
+        //public int[] debugOut = new int[4];
         public UnityEngine.UI.RawImage heightMapDisplay;
         public UnityEngine.UI.RawImage normalMapDisplay;
         public UnityEngine.UI.RawImage displacementMapDisplay;
@@ -94,9 +83,9 @@ namespace Assets.Scripts
         private Texture2D[] normalMapT2D;
         private Texture2D[] displacementMapT2D;
 
-        static double[] p = {0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        /*static double[] p = {0.99999999999980993, 676.5203681218851, -1259.1392167224028,
         771.32342877765313, -176.61502916214059, 12.507343278686905,
-        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7};
+        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7};*/
 
         void Awake()
         {
@@ -173,6 +162,7 @@ namespace Assets.Scripts
 
             bucketCounts = new int[N_omega];
             bucketRadii = new float[N_omega]; // 计算一次代表半径
+            //预计算 半径桶
             for (int b = 0; b < N_omega; b++)
             {
                 // 代表半径（按你的取样：ω_min + Δω*(b+0.5)）
@@ -237,32 +227,16 @@ namespace Assets.Scripts
                     AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
                 }
 
-                sw.Stop();
-                //Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 1) 更新粒子（分桶并行） 2) 剔除越界粒子
                 UpdateRegionParticlesBuckets(r, dt);
 
-                sw.Stop();
-                //Debug.Log($"Step 1 + 2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 3) 统计并上传每桶粒子（只传有效段）
                 UpdateRegionParticleBufferBuckets(r);
-
-                sw.Stop();
-                //Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // 4) 清零该 region 的 RInt array
                 ClearArraySlices(heightSlicesInt[r], N_omega);
                 //ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
                 //ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
-
-                sw.Stop();
-                //Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // 5) Splat（每桶一次，写入对应 slice）
                 int kS = SplatBucketsCS.FindKernel("SplatBucket");
@@ -287,10 +261,6 @@ namespace Assets.Scripts
                     particleCnt += count;
                 }
 
-                sw.Stop();
-                //Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 6) Int2Float（array 版本）
                 int kI2F = Int2FloatArrayCS.FindKernel("IntToFloatArray");
                 Int2FloatArrayCS.SetTexture(kI2F, "Source", heightSlicesInt[r]);
@@ -299,10 +269,6 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.SetFloat("Scale", 1000f);
                 Int2FloatArrayCS.SetInt("SliceCount", N_omega);
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-
-                sw.Stop();
-                //Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // 7) 可分离滤波：一次 dispatch 处理所有 slices（Z 维）
                 int kH = SeparableFilterCS.FindKernel("Horizontal");
@@ -335,10 +301,6 @@ namespace Assets.Scripts
                 // Vertical 一次跑完所有 slices
                 SeparableFilterCS.Dispatch(kV, gx, gy, N_omega);
 
-                sw.Stop();
-                //Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 8) 合并 slices → heightMap[r]（float）
                 int kR = ReduceSlicesCS.FindKernel("SumSlices");
                 ReduceSlicesCS.SetTexture(kR, "_HeightMapArray", heightSlicesFloat[r]);
@@ -346,10 +308,6 @@ namespace Assets.Scripts
                 ReduceSlicesCS.SetInts("_TexSize", resolution, resolution);
                 ReduceSlicesCS.SetInt("_SliceCount", N_omega);
                 ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-
-                sw.Stop();
-                //Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // debug 高度图
                 //EnqueueAverageHeightLogCPU(r);
@@ -361,18 +319,11 @@ namespace Assets.Scripts
                 Height2NormalComputeShader.SetInts("TexSize", resolution, resolution);
                 Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
-                sw.Stop();
-                //Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 10) 传材质
                 oceanMaterial.SetTexture($"_ParticleHeightMap{r}", heightMap[r]);
                 oceanMaterial.SetTexture($"_ParticleNormalMap{r}", normalMap[r]);
                 oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
-
-                sw.Stop();
-                //Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
             }
 
             // 看第0个region的第b个bucket
@@ -396,45 +347,6 @@ namespace Assets.Scripts
                 var p = newParticles[i];
                 int b = Mathf.Clamp(p.bucketNum, 0, N_omega - 1);
                 waveParticleRegions[idx].buckets[b].Add(p);
-            }
-        }
-
-        // 只基于 buckets 做并行更新；不再“清空再从 particles 重建”
-        /*void UpdateRegionParticlesBuckets(int idx, float dt)
-        {
-            var region = waveParticleRegions[idx];
-
-            JobHandle deps = default;
-            for (int b = 0; b < N_omega; b++)
-            {
-                var arr = region.buckets[b].AsArray();   // 注意：只改值，不改长度
-                if (arr.Length == 0) continue;
-
-                var job = new WaveParticleUpdateJob
-                {
-                    particles = arr,
-                    deltaTime = dt,
-                    planeSize = region.size.x,
-                    oceanSize = oceanSize
-                };
-                deps = job.Schedule(arr.Length, 64, deps);
-            }
-            deps.Complete();
-        }*/
-
-
-        void CullRegionBuckets(int idx)
-        {
-            var region = waveParticleRegions[idx];
-            for (int b = 0; b < N_omega; b++)
-            {
-                var list = region.buckets[b];
-                for (int i = list.Length - 1; i >= 0; i--)
-                {
-                    var p = list[i];
-                    if (!region.Contains(p.position, p.radius))
-                        list.RemoveAt(i);
-                }
             }
         }
 
@@ -480,8 +392,6 @@ namespace Assets.Scripts
         }
 
 
-
-
         void UpdateRegionParticleBufferBuckets(int idx)
         {
             var region = waveParticleRegions[idx];
@@ -511,6 +421,9 @@ namespace Assets.Scripts
             Graphics.SetRenderTarget(null);
         }
 
+
+
+        //use for debug
         /// <summary>把某个region的heightSlicesFloat的第slice层显示到一个RawImage</summary>
         public void ShowBucketSlice(int regionIndex, int sliceIndex, UnityEngine.UI.RawImage target)
         {
@@ -527,7 +440,6 @@ namespace Assets.Scripts
             target.texture = _slicePreviewRT;
         }
 
-        //debug
         public void DebugSliceStats(int regionIndex, int sliceIndex)
         {
             // 创建临时 RFloat RT
@@ -641,128 +553,6 @@ namespace Assets.Scripts
         private void OnDestroy()
         {
 
-        }
-
-        /// <summary>
-        /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
-        /// </summary>
-        /// <param name="k">波数大小</param>
-        /// <param name="dir">波数方向（单位向量）</param>
-        /// <param name="windVec">风速矢量（含大小和方向）</param>
-        /// <param name="g">重力加速度（9.81）</param>
-        /// <param name="depth">水深</param>
-        /// <param name="fetch">有效风区长度（可用海面长度代替）</param>
-        public float JONSWAPSpectrum(
-            float k,
-            Vector2 dir,
-            Vector2 windVec,
-            float g,
-            float depth,
-            float fetch
-        )
-        {
-            // 转成角频率 ω = sqrt(g k)
-            float ω = Mathf.Sqrt(g * k);
-
-            float U = windVec.magnitude;
-            //Debug.Log($"U: {U}");
-
-            // 计算谱无方向部分 Sjw(ω)
-            float α = 0.076f * Mathf.Pow((U * U) / (g * fetch), 0.22f);
-            //float ωp = 0.84f * g / Mathf.Max(U, 0.1f);
-            float ωp = 22f * Mathf.Pow((g * g) / (U * fetch), 0.333333f);
-            float γ = 3.3f;
-            float σ = (ω <= ωp) ? 0.07f : 0.09f;
-            float r = Mathf.Exp(-Mathf.Pow((ω - ωp), 2f) / (2f * σ * σ * ωp * ωp));
-            float S0 = (α * g * g) / Mathf.Pow(ω, 5f)
-                     * Mathf.Exp(-1.25f * Mathf.Pow(ωp / ω, 4f))
-                     * Mathf.Pow(γ, r);
-            //Debug.Log("S0: "+ S0);
-            //return S0;
-
-            // 有限深度 TMA 修正
-            float ωh = ω * Mathf.Sqrt(depth / g);
-            float TMA = ωh <= 1f
-                ? 0.5f * ωh * ωh
-                : (ωh < 2f
-                   ? 1f - 0.5f * Mathf.Pow(2f - ωh, 2f)
-                   : 1f);
-
-            float S_deep = S0 * TMA;
-            //Debug.Log($"S_deep: {S_deep}");
-            //return S_deep;
-
-            // 方向性修正 D(θ)
-            //    θ = 波向 与 风向 夹角
-            float θ = Vector2.SignedAngle(windVec.normalized, dir) * Mathf.Deg2Rad;
-            //    一般用 cos^n 展开，指数 n 随 ω/ωp 而变化
-            float μ = (ω <= ωp) ? 5f : -2.5f;
-            float n = 16f * Mathf.Pow(ω / ωp, μ);
-            float D = (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(Mathf.Cos(θ / 2f), n);
-            //Debug.Log($"D: {D}");
-            // 6. 转换到 S(k) = S(ω) · (dω/dk) = S_deep · (1/2) sqrt(g/k)
-            float domega_dk = 0.5f * Mathf.Sqrt(g / k);
-            //Debug.Log($"domega_dk: {domega_dk}");
-            return S_deep * D * domega_dk;
-        }
-        /// <summary>
-        /// 计算带方向和深度修正的 JONSWAPGlenn 频谱密度 S(k,dir) 涌浪Swell用
-        /// </summary>
-        /// <param name="k">波数大小</param>
-        /// <param name="dir">波数方向（单位向量）</param>
-        /// <param name="g">重力加速度（9.81）</param>
-        /// <param name="depth">水深</param>
-        public float JONSWAPGlennSpectrum(
-            float k,
-            Vector2 dir,
-            WavesSettings ws
-        )
-        {
-            // 转成角频率 ω = sqrt(g k)
-            float ω = Mathf.Sqrt(ws.g * k);
-            float f = ω / (2f * Mathf.PI);
-            float fp = 1 / Tp;
-            //float γ = 3.3f;
-            float γjg = 9.5f * Mathf.Pow(Hs, 0.34f) * fp;
-            float σ = (f <= fp) ? 0.07f : 0.09f;
-            //float ωp = 0.84f * g / Mathf.Max(U, 0.1f);
-            float cc = 1.15f + 0.1688f * γjg - 0.925f / (1.909f + γjg);
-            float c = (5f * Hs * Hs) / (16f * fp) * Mathf.Pow(cc, -1f);
-            float r = Mathf.Exp(-1 * (f - fp) * (f - fp) / (2 * σ * σ * fp * fp));
-            float Sjg = c * Mathf.Pow(f / fp, -5f) * Mathf.Exp(-5.0f / 4.0f * Mathf.Pow(f / fp, -4f)) * Mathf.Pow(γjg, r);
-            //return Sjg;
-
-            float μ = f > fp ? -2.5f : 5.0f;
-            float sw = 16.0f * Mathf.Pow(f / fp, μ);
-            float U = Mathf.Sqrt(ws.swell.windSpeed.x * ws.swell.windSpeed.x + ws.swell.windSpeed.y * ws.swell.windSpeed.y);
-            Vector2 swellDir = new Vector2(ws.swell.windSpeed.x / U, ws.swell.windSpeed.y / U);
-
-            //应用方向夹角修正
-            float θ = Mathf.Atan2(dir.y, dir.x) - Mathf.Atan2(swellDir.y, swellDir.x);
-            if (Mathf.Abs(θ) > Mathf.PI)
-            {
-                θ = 2 * Mathf.PI - Mathf.Abs(θ);
-            }
-            float DirSpectrum = MyGammaDouble(sw + 1) / (2 * Mathf.Sqrt(Mathf.PI) * MyGammaDouble(sw + 0.5f)) * Mathf.Pow(Mathf.Cos(θ / 2), 2 * sw);
-            //最后转换到sk
-            float Sk = Sjg * DirSpectrum / (4.0f * Mathf.PI) * Mathf.Sqrt(ws.g / k) / k;
-            return (float)Sk;
-        }
-
-        /// <summary>
-        /// 用来计算 Γ(z)（Gamma 函数）的近似值,实现了一个 Lanczos 近似
-        /// </summary>
-        private float MyGammaDouble(float z)
-        {
-            int g = 7;
-            if (z < 0.5)
-                return Mathf.PI / (Mathf.Sin(Mathf.PI * z) * MyGammaDouble(1 - z));
-            z -= 1;
-            float x = (float)p[0];
-            for (var i = 1; i < g + 2; i++)
-                x += (float)p[i] / (z + i);
-            float t = z + g + 0.5f;
-            return Mathf.Sqrt(2 * Mathf.PI) * (Mathf.Pow(t, z + 0.5f)) * Mathf.Exp(-t) * x;
         }
 
 
