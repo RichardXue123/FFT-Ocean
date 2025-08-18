@@ -1,4 +1,4 @@
-﻿﻿Shader "Ocean/OceanFFT"
+﻿﻿Shader "Ocean/Ocean"
 {
     Properties
     {
