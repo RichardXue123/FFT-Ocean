@@ -48,6 +48,7 @@ namespace Assets.Scripts
         private ComputeBuffer[][] particleVelBuffersPerBucket; // [region][bucket]
         private int[] bucketCounts;                         // 复用计数缓存
         private float[] bucketRadii;                        // 每桶代表半径(世界单位)
+        private float[] bucketOmega;
         private ComputeBuffer radiiBuf;
 
         [Header("Rendering")]
@@ -195,10 +196,23 @@ namespace Assets.Scripts
                     particleVelBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
                 }
 
+                if (normalMapT2D == null) normalMapT2D = new Texture2D[MAX_REGIONS];
+                if (normalMapT2D[i] == null || normalMapT2D[i].width != resolution)
+                {
+                    normalMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RGBAFloat, false);
+                }
+
+                if (heightMapT2D == null) heightMapT2D = new Texture2D[MAX_REGIONS];
+                if (heightMapT2D[i] == null || heightMapT2D[i].width != resolution)
+                {
+                    heightMapT2D[i] = new Texture2D(resolution, resolution, TextureFormat.RFloat, false);
+                }
+
             }
 
             bucketCounts = new int[N_omega];
             bucketRadii = new float[N_omega]; // 计算一次代表半径
+            bucketOmega = new float[N_omega]; // 计算一次omega
             //预计算 半径桶
             for (int b = 0; b < N_omega; b++)
             {
@@ -210,6 +224,7 @@ namespace Assets.Scripts
                 float omega = omega_min + delta_omega * (b + 0.5f);
                 float k = omega * omega / wavesSettings.g;
                 bucketRadii[b] = Mathf.PI / k; // r = π/k
+                bucketOmega[b] = omega;
             }
 
             radiiBuf = new ComputeBuffer(N_omega, sizeof(float));
@@ -378,6 +393,9 @@ namespace Assets.Scripts
                 oceanMaterial.SetTexture($"_ParticleNormalMap{r}", normalMap[r]);
                 oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
+
+                // 11) 更新texture2d for interact
+                SyncRegionTexturesToCPU(r);
             }
 
             // 看第0个region的第b个bucket
@@ -477,6 +495,23 @@ namespace Assets.Scripts
             Graphics.SetRenderTarget(null);
         }
 
+        // 同步某个 region 的 RT -> Texture2D
+        void SyncRegionTexturesToCPU(int regionIdx)
+        {
+            // 高度
+
+            RenderTexture.active = heightMap[regionIdx];
+            heightMapT2D[regionIdx].ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
+            heightMapT2D[regionIdx].Apply();
+
+            // 法线
+
+            RenderTexture.active = normalMap[regionIdx];
+            normalMapT2D[regionIdx].ReadPixels(new Rect(0, 0, resolution, resolution), 0, 0);
+            normalMapT2D[regionIdx].Apply();
+
+            RenderTexture.active = null;
+        }
 
 
         //use for debug
@@ -613,7 +648,7 @@ namespace Assets.Scripts
 
 
         /// <summary>
-        /// 采样扩展水面位置和法线
+        /// 采样水面高度和法线（不包含水平位移）
         /// </summary>
         public Vector3 SampleWaterSurfacePositionAndNormal(int regionIdx, Vector2 worldXZ, out Vector3 normal)
         {
@@ -624,6 +659,7 @@ namespace Assets.Scripts
                 Debug.LogWarning("regionIdx越界");
                 return new Vector3(worldXZ.x, 0, worldXZ.y);
             }
+
             var region = waveParticleRegions[regionIdx];
 
             // UV映射
@@ -633,19 +669,13 @@ namespace Assets.Scripts
 
             // 采样高度
             float height = 0;
-            if (heightMapT2D[regionIdx] != null)
-                height = heightMapT2D[regionIdx].GetPixelBilinear(uv.x, uv.y).r;
-            else
-                Debug.LogWarning("未找到对应的heightMapT2D");
-
-            // 采样横向分量
-            Vector2 disp = Vector2.zero;
-            if (displacementMapT2D != null && displacementMapT2D[regionIdx] != null)
+            if (heightMapT2D != null && heightMapT2D[regionIdx] != null)
             {
-                Color dispColor = displacementMapT2D[regionIdx].GetPixelBilinear(uv.x, uv.y);
-                disp = new Vector2(dispColor.r, dispColor.g);
-                disp = disp * 2f - Vector2.one; // 变换回[-1,1]
-                disp = Vector2.Scale(disp, region.size);
+                height = heightMapT2D[regionIdx].GetPixelBilinear(uv.x, uv.y).r;
+            }
+            else
+            {
+                Debug.LogWarning("未找到对应的 heightMapT2D");
             }
 
             // 采样法线
@@ -660,46 +690,151 @@ namespace Assets.Scripts
                 normal = Vector3.up;
             }
 
-            return new Vector3(worldXZ.x + disp.x, region.center.y + height, worldXZ.y + disp.y);
+            // 返回的 position 不加水平位移，只是原始XZ和水面高度
+            return new Vector3(worldXZ.x, region.center.y + height, worldXZ.y);
         }
 
 
 
-        /// <summary>
-        /// 在 regionIdx 对应区域，从 pos 位置往外环形生成一圈波粒子，
-        /// 粒子的振幅/速度与体积变化 deltaV 成正比，方向均匀覆盖一圈。
-        /// </summary>
-        public void GenerateWaveParticles(int regionIdx, Vector2 pos, float deltaV, int objSampleCount = 16)
+        public void GenerateWaveParticles(int regionIdx, Vector2 pos, float V, Vector3 vel, float dt, int dirSampleCount = 16)
         {
+            Debug.Log("v:" + vel+" "+dt);
             if (regionIdx < 0 || regionIdx >= waveParticleRegions.Count) return;
+            if (dirSampleCount <= 0) return;
+            var region = waveParticleRegions[regionIdx];
 
-            // deltaV 决定基础振幅、波动速度
-            // 你可根据需要调整这些“物理参数”的线性系数
-            //float K1 = 0.1f;
-            float baseAmplitude = deltaV * 0.03f; // 或直接 *某个缩放
-            float baseSpeed = Mathf.Abs(deltaV) * 0.5f; // 越大越快
-            float radius = baseSpeed * baseSpeed * Mathf.PI / wavesSettings.g; // 影响半径
-            //Debug.Log("r:"+radius);
+            float V_inwater = Mathf.Max(0f, V);
+            float S_inwater = Mathf.Pow(V_inwater , (2f / 3f));
+            if (V_inwater <= 0f) return;
 
-            // 一圈 objSampleCount 个方向
-            for (int i = 0; i < objSampleCount; i++)
+            float g = wavesSettings.g > 0 ? wavesSettings.g : 9.81f;
+
+            // --- 小工具：根据相速 c 选最近半径桶 ---
+            int PickBucketBySpeed(float cSpeed, out float radiusOut, out float kOut, out float omegaOut)
             {
-                float angle = i * Mathf.PI * 2.0f / objSampleCount;
-                Vector2 dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-
-                var particle = new WaveParticle()
+                float dV = S_inwater * cSpeed * dt;
+                float r = Mathf.Pow(dV / 1.4535f, 1 / 3);
+                int best = 0; float diff = float.MaxValue;
+                for (int b = 0; b < bucketRadii.Length; b++)
                 {
-                    position = pos + 2f * dir * radius, // 从采样点为绕一圈发出
-                    height = baseAmplitude,
-                    direction = dir.normalized,    // 朝外发射
-                    speed = baseSpeed,             // 传播速度
-                    radius = radius,               // 粒子影响半径
-                    omega = baseSpeed / radius, // 可根据波速和半径自定义
-                    k = 2 * Mathf.PI / radius     // 可按半径对应的k算
-                };
-                //waveParticleRegions[regionIdx].particles.Add(particle);
+                    float d = Mathf.Abs(bucketRadii[b] - r);
+                    if (d < diff) { diff = d; best = b; }
+                }
+                best = Mathf.Clamp(best, 0, bucketRadii.Length - 1);
+                radiusOut = bucketRadii[best];
+                kOut = Mathf.PI / Mathf.Max(radiusOut, 1e-3f);
+                omegaOut = Mathf.Sqrt(g * kOut);
+                return best;
+            }
+
+            // ==============================
+            // 1) 竖直分量：均匀环
+            // ==============================
+            float vy = vel.y;
+            float cY = Mathf.Abs(vy);
+            if (cY > 1e-3f)
+            {
+                int bucketY = PickBucketBySpeed(cY, out float rY, out float kY, out float omegaY);
+
+                // 向下( vy<0 )压水 -> 正振幅；向上( vy>0 )吸波 -> 负振幅
+                float signY = (vy >= 0f) ? -1f : 1f;
+
+                // 系数可按项目调（竖直项）
+                const float K_ampY = 0.025f;
+                float A_total_Y = signY * S_inwater * cY * dt / (1.4535f * bucketRadii[bucketY] * bucketRadii[bucketY]);
+                A_total_Y = Mathf.Clamp(A_total_Y, -5f, 5f);
+                Debug.Log("S:" + S_inwater+ "cY:"+cY + "Total A_Y:" +A_total_Y+" Radius Y:"+bucketRadii[bucketY]);
+                float a_i = A_total_Y / dirSampleCount; // 均匀分摊
+                if (Mathf.Abs(a_i) > 1e-7f)
+                {
+                    for (int i = 0; i < dirSampleCount; i++)
+                    {
+                        float ang = i * Mathf.PI * 2f / dirSampleCount;
+                        Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                        var ppos = pos + dir * rY;
+
+                        var p = new WaveParticle
+                        {
+                            position = ppos,
+                            height = a_i,
+                            direction = dir,
+                            speed = cY,
+                            radius = rY,
+                            omega = omegaY,
+                            k = kY,
+                            bucketNum = bucketY
+                        };
+                        waveParticleRegions[regionIdx].buckets[bucketY].Add(p);
+                    }
+                }
+            }
+
+            // ==============================
+            // 2) 水平分量：Kelvin 尾迹双峰
+            // ==============================
+            Vector2 vH = new Vector2(vel.x, vel.z);
+            float cH = vH.magnitude;
+            if (cH > 1e-3f)
+            {
+                int bucketH = PickBucketBySpeed(cH, out float rH, out float kH, out float omegaH);
+
+                Vector2 vH_dir = vH / cH;
+                // Kelvin 脊角（约 19.47°）
+                const float thetaK = 0.3398369095f;
+
+                // 脊方向以“背向速度”为轴线（船后），加减 Kelvin 角
+                float backAng = Mathf.Atan2(-vH_dir.y, -vH_dir.x);
+                float lobeAngL = backAng + thetaK;
+                float lobeAngR = backAng - thetaK;
+
+                // von Mises 双峰 + 背景噪声（水平速度越大 -> 越尖锐/越纯）
+                float kappa = Mathf.Lerp(4f, 24f, Mathf.Clamp01(cH / (cH + 1f)));
+                float epsilon = Mathf.Lerp(0.15f, 0.02f, Mathf.Clamp01(cH / (cH + 1f)));
+
+                float[] w = new float[dirSampleCount];
+                float wsum = 0f;
+                for (int i = 0; i < dirSampleCount; i++)
+                {
+                    float ang = i * Mathf.PI * 2f / dirSampleCount;
+                    float dL = Mathf.Repeat((ang - lobeAngL) + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
+                    float dR = Mathf.Repeat((ang - lobeAngR) + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
+                    float peakL = Mathf.Exp(kappa * Mathf.Cos(dL));
+                    float peakR = Mathf.Exp(kappa * Mathf.Cos(dR));
+                    w[i] = epsilon + peakL + peakR;
+                    wsum += w[i];
+                }
+                if (wsum < 1e-6f) { for (int i = 0; i < dirSampleCount; i++) w[i] = 1f; wsum = dirSampleCount; }
+
+                // 水平项的总振幅（可单独系数）
+                const float K_ampH = 0.0030f;
+                float A_total_H = S_inwater * cH * dt / (1.4535f * bucketRadii[bucketH] * bucketRadii[bucketH]);
+                A_total_H = Mathf.Clamp(A_total_H, -5f, 5f);
+                Debug.Log("Total A_H:" + A_total_H + " Radius H:" + bucketRadii[bucketH]);
+                for (int i = 0; i < dirSampleCount; i++)
+                {
+                    float ang = i * Mathf.PI * 2f / dirSampleCount;
+                    Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                    float a_i = A_total_H * (w[i] / wsum);
+                    if (Mathf.Abs(a_i) < 1e-7f) continue;
+
+                    var ppos = pos + dir * rH;
+
+                    var p = new WaveParticle
+                    {
+                        position = ppos,
+                        height = a_i,
+                        direction = dir,
+                        speed = cH,      // 与船水平速度一致
+                        radius = rH,
+                        omega = omegaH,
+                        k = kH,
+                        bucketNum = bucketH
+                    };
+                    waveParticleRegions[regionIdx].buckets[bucketH].Add(p);
+                }
             }
         }
+
 
 
     }

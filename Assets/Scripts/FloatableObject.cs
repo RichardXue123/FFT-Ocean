@@ -17,6 +17,8 @@ namespace Assets.Scripts
         public int sampleCount = 1000;
         [Tooltip("物体密度（kg/m³），默认为水1000")]
         public float density = 1000f;
+        [Tooltip("用于生成尾迹/涟漪的方向采样数")]
+        public int DirSampleCount = 16;
 
         // 用于存储物体局部采样点坐标（相对于物体局部中心）
         List<Vector3> localSamplePoints = new List<Vector3>();
@@ -68,40 +70,53 @@ namespace Assets.Scripts
 
         void FixedUpdate()
         {
-            if (water == null || localSamplePoints.Count == 0) return;
-            float g = 9.81f;
-            int curPointsCount = 0;
+            if (water == null || localSamplePoints.Count == 0 || sampleCount <= 0) return;
+
+            const float g = 9.81f;
+            int submergedCount = 0;
+
+            // === 浮力 ===
             foreach (var local in localSamplePoints)
             {
-                // 1. 采样点的世界坐标
                 Vector3 worldPos = transform.TransformPoint(local);
-                //Debug.Log(local+": "+transform.position + ": "+worldPos);
                 Vector2 probeXZ = new Vector2(worldPos.x, worldPos.z);
 
-                // 2. 同时采样水面位置和法线
                 Vector3 normal;
                 Vector3 surfacePos = water.SampleWaterSurfacePositionAndNormal(regionIndex, probeXZ, out normal);
-                //Debug.Log("采样点：" + probeXZ + "  水面高度：" + surfacePos.y);
-                // 3. 计算采样点的相对水深（表面y-物体点y）
-                float depth = surfacePos.y - worldPos.y;
 
-                // 4. 点在水下，施加浮力（浮力方向用法线！）
-                if (depth > 0)
+                float depth = surfacePos.y - worldPos.y;
+                if (depth > 0f)
                 {
+                    // 简化的“点式浮力”，方向用水面法线
                     float forceMag = density * g * dv;
                     rb.AddForceAtPosition(normal * forceMag, worldPos);
-                    // 这样浮力方向随水面斜面变化
-                    curPointsCount++;
+                    submergedCount++;
                 }
             }
-            float deltaV = (curPointsCount - prevPointCount) * dv;
-            
-            if (deltaV > 0)
+
+            // === 计算当前淹没体积 V_inwater ===
+            float V_inwater = submergedCount * dv;
+
+            // === 质心速度 ===
+            Vector3 v = rb.velocity;
+
+            // === 时间步长 ===
+            float dt = Time.fixedDeltaTime;
+
+            // 传给水系统，让水系统依据 V_inwater、v、dirSamples 生成涟漪/尾迹
+            // （半径选桶、方向分布、正负振幅在水系统里做）
+            if (V_inwater > 0f || v.sqrMagnitude > 1e-2f)
             {
-                //Debug.Log($"deltaV: {deltaV}");
-                water.GenerateWaveParticles(regionIndex, new Vector2(transform.position.x, transform.position.z), deltaV);
+                Vector2 posXZ = new Vector2(transform.position.x, transform.position.z);
+                water.GenerateWaveParticles(
+                    regionIndex,
+                    posXZ,
+                    V_inwater,
+                    v,
+                    dt,
+                    DirSampleCount
+                );
             }
-            prevPointCount = curPointsCount;
         }
     }
 }

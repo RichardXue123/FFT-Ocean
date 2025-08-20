@@ -1,40 +1,50 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Assets.Scripts
 {
     public class ObjectController : MonoBehaviour
     {
-        public float moveForce = 100000f;  // 平移力度
-
+        public float moveAccel = 10f;  // 平移加速度（单位：m/s²）
         private Rigidbody rb;
 
         void Start()
         {
-            rb = GetComponent<Rigidbody>();  // 获取刚体组件
+            rb = GetComponent<Rigidbody>();
         }
 
         void Update()
         {
-            Vector3 force = Vector3.zero;
+            Vector3 accel = Vector3.zero;
 
-            // J=左，L=右，I=前，K=后
-            if (Input.GetKey(KeyCode.J))
-                force.x -= moveForce;
-            if (Input.GetKey(KeyCode.L))
-                force.x += moveForce;
+            // 获取摄像机方向
+            Transform cam = Camera.main.transform;
+
+            // 水平 forward / right
+            Vector3 forward = cam.forward;
+            forward.y = 0;
+            forward.Normalize();
+
+            Vector3 right = cam.right;
+            right.y = 0;
+            right.Normalize();
+
+            // 按键映射：IJKL = 前后左右
             if (Input.GetKey(KeyCode.I))
-                force.z += moveForce;
+                accel += forward * moveAccel;
             if (Input.GetKey(KeyCode.K))
-                force.z -= moveForce;
-            // 空格键 - 向上（y轴）加力
+                accel -= forward * moveAccel;
+            if (Input.GetKey(KeyCode.L))
+                accel += right * moveAccel;
+            if (Input.GetKey(KeyCode.J))
+                accel -= right * moveAccel;
+
+            // 空格键 - 向上
             if (Input.GetKey(KeyCode.Space))
-                force.y += moveForce;
-            rb.AddForce(force);
+                accel += Vector3.up * moveAccel;
+
+            // 直接施加加速度（忽略质量）
+            rb.AddForce(accel, ForceMode.Acceleration);
         }
     }
 }

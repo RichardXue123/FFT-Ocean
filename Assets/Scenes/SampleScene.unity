@@ -221,7 +221,7 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
   MAX_PARTICLES: 1000000
-  N_omega: 8
+  N_omega: 16
   N_theta: 8
   SplatBucketsCS: {fileID: 7200000, guid: 817e87485441e634cbcb4d3122ba784b, type: 3}
   Int2FloatArrayCS: {fileID: 7200000, guid: 51e2c33f888d815459f965830348a116, type: 3}
@@ -468,6 +468,7 @@ MonoBehaviour:
   regionIndex: 0
   sampleCount: 1000
   density: 500
+  DirSampleCount: 16
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0
@@ -751,6 +752,7 @@ MonoBehaviour:
   regionIndex: 0
   sampleCount: 1000
   density: 1000
+  DirSampleCount: 16
 --- !u!54 &805559148
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -1470,15 +1472,15 @@ GameObject:
   - component: {fileID: 2019759770}
   - component: {fileID: 2019759769}
   - component: {fileID: 2019759774}
-  - component: {fileID: 2019759773}
   - component: {fileID: 2019759775}
+  - component: {fileID: 2019759776}
   m_Layer: 0
   m_Name: Cube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!65 &2019759769
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -1565,22 +1567,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2019759773
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2019759768}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  water: {fileID: 77222651}
-  regionIndex: 0
-  sampleCount: 1000
-  density: 1000
 --- !u!54 &2019759774
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -1620,7 +1606,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 616a7803c32862640b746857d9ad6df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveForce: 2000000
+  moveAccel: 10
+--- !u!114 &2019759776
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2019759768}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  water: {fileID: 77222651}
+  regionIndex: 0
+  sampleCount: 1000
+  density: 1000
+  DirSampleCount: 16
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
