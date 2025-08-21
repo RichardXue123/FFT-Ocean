@@ -220,23 +220,21 @@ MonoBehaviour:
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
-  MAX_PARTICLES: 1000000
-  N_omega: 16
-  N_theta: 8
+  MAX_PARTICLES: 500000
+  N_omega: 10
+  N_theta: 16
+  bucketCounts: 
+  bucketRadii: []
+  bucketOmega: []
+  deltaOmega: []
   SplatBucketsCS: {fileID: 7200000, guid: 817e87485441e634cbcb4d3122ba784b, type: 3}
   Int2FloatArrayCS: {fileID: 7200000, guid: 51e2c33f888d815459f965830348a116, type: 3}
   SeparableFilterCS: {fileID: 7200000, guid: f038d171e651ea6469e994bda9aebf9d, type: 3}
   ReduceSlicesCS: {fileID: 7200000, guid: 0ed35b4800f21ed408591d81e69851c9, type: 3}
-  heightMapComputeShader: {fileID: 7200000, guid: 83b3be39cba2502458208423702645e5,
-    type: 3}
-  SplatComputeShader: {fileID: 7200000, guid: e62ac8dd02e4237449b71a94a924b9a3, type: 3}
-  Int2FloatComputeShader: {fileID: 7200000, guid: 1631aff1d80cc924484221b5e542db27,
-    type: 3}
   Height2NormalComputeShader: {fileID: 7200000, guid: 1136da0994e98c844ba4763db661410b,
     type: 3}
   heightMap: []
   normalMap: []
-  displacementMap: []
   resolution: 256
   textureSize: {x: 512, y: 512}
   blendRange: 0.2
@@ -1392,6 +1390,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: boat
       objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1606,18 +1609,17 @@ MonoBehaviour:
   MAX_PARTICLES: 1000000
   N_omega: 8
   N_theta: 8
+  bucketCounts: 
+  bucketRadii: []
+  bucketOmega: []
+  deltaOmega: []
   SplatBucketsCS: {fileID: 0}
   Int2FloatArrayCS: {fileID: 0}
   SeparableFilterCS: {fileID: 0}
   ReduceSlicesCS: {fileID: 0}
-  heightMapComputeShader: {fileID: 7200000, guid: 919085414cd0fa047bf7443f818f6fe5,
-    type: 3}
-  SplatComputeShader: {fileID: 0}
-  Int2FloatComputeShader: {fileID: 0}
   Height2NormalComputeShader: {fileID: 0}
   heightMap: []
   normalMap: []
-  displacementMap: []
   resolution: 512
   textureSize: {x: 512, y: 512}
   blendRange: 0.2

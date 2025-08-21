@@ -27,13 +27,16 @@ namespace Assets.Scripts
 
         private float _omegaMin;
         private float _omegaMax;
-        private float _deltaOmega;
+        //private float _deltaOmega;
         private float _deltaTheta;
 
         // 分桶频率与由其派生的量
-        private float[] _omegas;       // ω[i]
+        public float[] _omegas;       // ω[i]
+        public float[] _deltaOmegas;
+        // 额外保存桶边界（调试/可视化有用）
+        public float[] _omegaEdges;
         private float[] _ks;           // k[i]
-        private float[] _radii;        // radius[i] = π/k
+        public float[] _radii;        // radius[i] = π/k
         private float[] _phaseSpeeds;  // c[i] = sqrt(g/k)
         private float[] _omegaPow3;    // ω^3（用于 per-frame 公式）
         private float[] _omegaPow4;    // ω^4（用于全区域公式）
@@ -50,46 +53,158 @@ namespace Assets.Scripts
             _Nomega = Mathf.Max(1, N_omega);
             _Ntheta = Mathf.Max(1, N_theta);
 
-            // 缓存常用参数
             _g = ws.g;
             _depth = ws.depth;
             _fetch = ws.local.fetch;
             _windVec = ws.local.windSpeed;
             _omegaP = ws.spectrums[0].peakOmega;
 
-            // 频率采样区间 & 步长
             _omegaMin = _omegaP * 0.5f;
             _omegaMax = _omegaP * 2.5f;
-            _deltaOmega = (_omegaMax - _omegaMin) / _Nomega;
             _deltaTheta = 2f * Mathf.PI / _Ntheta;
 
-            // 分配数组
             _omegas = new float[_Nomega];
             _ks = new float[_Nomega];
             _radii = new float[_Nomega];
             _phaseSpeeds = new float[_Nomega];
             _omegaPow3 = new float[_Nomega];
             _omegaPow4 = new float[_Nomega];
+            _deltaOmegas = new float[_Nomega];
+            _omegaEdges = new float[_Nomega + 1];
 
-            // 逐桶预计算
+            // ---------- 1) 预采样 S_deep(ω) 并做累计能量 ----------
+            int M = 1024; // 细网格
+            float dω_uniform = (_omegaMax - _omegaMin) / (M - 1);
+
+            // 方向平均的深水权重（去掉方向 D，取 S_deep*dω/dk 这部分）
+            float EvalWeight(float ω)
+            {
+                // 复制自 JONSWAPSpectrumCached，但不乘方向项 D
+                float k = ω * ω / _g;
+                float U = _windVec.magnitude;
+
+                float α = 0.076f * Mathf.Pow((U * U) / (_g * _fetch), 0.22f);
+                float γ = 3.3f;
+                float σ = (ω <= _omegaP) ? 0.07f : 0.09f;
+                float r = Mathf.Exp(-Mathf.Pow((ω - _omegaP), 2f) / (2f * σ * σ * _omegaP * _omegaP));
+                float S0 = (α * _g * _g) / Mathf.Pow(ω, 5f)
+                           * Mathf.Exp(-1.25f * Mathf.Pow(_omegaP / ω, 4f))
+                           * Mathf.Pow(γ, r);
+
+                float ωh = ω * Mathf.Sqrt(_depth / _g);
+                float TMA = (ωh <= 1f) ? 0.5f * ωh * ωh
+                            : (ωh < 2f ? 1f - 0.5f * Mathf.Pow(2f - ωh, 2f) : 1f);
+
+                float S_deep = S0 * TMA;
+
+                // 注意：你原 JONSWAP 返回里还乘了 domega_dk；我们这里做按 ω 的等能量分桶，
+                // 权重直接用 S_deep(ω) 即可（能量谱密度对 ω 积分）。
+                return Mathf.Max(0f, S_deep);
+            }
+
+            // 细网格上评估
+            float[] ωgrid = new float[M];
+            float[] wgrid = new float[M];
+            for (int j = 0; j < M; j++)
+            {
+                float ω = _omegaMin + j * dω_uniform;
+                ωgrid[j] = ω;
+                wgrid[j] = EvalWeight(ω);
+            }
+
+            // 梯形积分累计
+            float[] cdf = new float[M];
+            cdf[0] = 0f;
+            for (int j = 1; j < M; j++)
+            {
+                cdf[j] = cdf[j - 1] + 0.5f * (wgrid[j] + wgrid[j - 1]) * dω_uniform;
+            }
+            float totalEnergy = cdf[M - 1];
+            if (totalEnergy <= 1e-20f) totalEnergy = 1e-20f;
+
+            // ---------- 2) 依据等能量选择桶边界 ----------
+            _omegaEdges[0] = _omegaMin;
+            _omegaEdges[_Nomega] = _omegaMax;
+
+            // 二分查找 CDF^-1
+            float FindOmegaAtCdf(float target)
+            {
+                int lo = 0, hi = M - 1;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi) >> 1;
+                    if (cdf[mid] < target) lo = mid + 1; else hi = mid;
+                }
+                // 线性内插
+                int i1 = Mathf.Clamp(lo - 1, 0, M - 2);
+                int i2 = i1 + 1;
+                float t1 = cdf[i1], t2 = cdf[i2];
+                float w = (Mathf.Abs(t2 - t1) < 1e-12f) ? 0f : (target - t1) / (t2 - t1);
+                return Mathf.Lerp(ωgrid[i1], ωgrid[i2], Mathf.Clamp01(w));
+            }
+
+            for (int i = 1; i < _Nomega; i++)
+            {
+                float target = (totalEnergy * i) / _Nomega;
+                _omegaEdges[i] = FindOmegaAtCdf(target);
+            }
+
+            // ---------- 3) 每个桶中心频率 = 能量加权质心；Δω 为边界差 ----------
             for (int iw = 0; iw < _Nomega; iw++)
             {
-                float omega = _omegaMin + _deltaOmega * (iw + 0.5f);
-                float k = omega * omega / _g;
+                float a = _omegaEdges[iw];
+                float b = _omegaEdges[iw + 1];
 
-                _omegas[iw] = omega;
+                // 细网格上做质心近似：∫ω*S dω / ∫S dω
+                // 先快速遍历 ωgrid 覆盖 [a,b] 的索引范围
+                int j0 = Mathf.Clamp(Mathf.FloorToInt((a - _omegaMin) / dω_uniform), 0, M - 2);
+                int j1 = Mathf.Clamp(Mathf.CeilToInt((b - _omegaMin) / dω_uniform), 1, M - 1);
+
+                float num = 0f, den = 0f;
+                for (int j = j0 + 1; j <= j1; j++)
+                {
+                    // 小段 [ω_{j-1}, ω_j]
+                    float ωL = ωgrid[j - 1], ωR = ωgrid[j];
+                    float sL = wgrid[j - 1], sR = wgrid[j];
+
+                    // 与 [a,b] 截断
+                    float L = Mathf.Max(ωL, a);
+                    float R = Mathf.Min(ωR, b);
+                    if (R <= L) continue;
+
+                    // 线性内插 s(ω) ≈ sL + t (sR - sL)
+                    // ∫ s dω ≈ 0.5*(s(L)+s(R))*(R-L)
+                    float sL2 = Mathf.Lerp(sL, sR, (L - ωL) / (ωR - ωL));
+                    float sR2 = Mathf.Lerp(sL, sR, (R - ωL) / (ωR - ωL));
+                    float segDen = 0.5f * (sL2 + sR2) * (R - L);
+
+                    // ∫ ω s(ω) dω 近似：用中点加权（足够好）
+                    float mid = 0.5f * (L + R);
+                    float sMid = 0.5f * (sL2 + sR2);
+                    float segNum = mid * sMid * (R - L);
+
+                    den += segDen;
+                    num += segNum;
+                }
+
+                float ωc = (den > 1e-20f) ? (num / den) : 0.5f * (a + b);
+                _omegas[iw] = ωc;
+                _deltaOmegas[iw] = Mathf.Max(1e-6f, b - a); // 防零
+
+                // 后续派生量
+                float k = ωc * ωc / _g;
                 _ks[iw] = k;
                 _radii[iw] = Mathf.PI / k;
                 _phaseSpeeds[iw] = Mathf.Sqrt(_g / k);
-                _omegaPow3[iw] = omega * omega * omega;
-                _omegaPow4[iw] = _omegaPow3[iw] * omega;
+                _omegaPow3[iw] = ωc * ωc * ωc;
+                _omegaPow4[iw] = _omegaPow3[iw] * ωc;
             }
 
-            // 重置小数累加器
+            // 小数累加器重置
             batchAccumulate = new List<float>(new float[_Nomega]);
-
             _initialized = true;
         }
+
 
         // ====== 生成函数 ======
 
@@ -137,7 +252,7 @@ namespace Assets.Scripts
                         float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
-                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmega * _deltaTheta);
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaTheta);
                         Vector2 pos = SamplePositionInRegion(regionCenter, regionSize);
 
                         var particle = new WaveParticle
@@ -208,7 +323,8 @@ namespace Assets.Scripts
                         float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
-                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmega * _deltaTheta);
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaTheta);
+                        if (amplitude < 1e-5f) { continue; }
                         Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
 
                         var particle = new WaveParticle
