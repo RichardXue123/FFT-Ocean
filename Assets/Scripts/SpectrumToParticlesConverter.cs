@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
 using Random = UnityEngine.Random;
@@ -15,13 +11,160 @@ namespace Assets.Scripts
     /// </summary>
     public class SpectrumToParticlesConverter
     {
+        // ====== 预计算/缓存 ======
+        private bool _initialized;
+
+        // 配置与缓存的物理量
+        private WavesSettings _ws;
+        private int _Nomega;
+        private int _Ntheta;
+
+        private float _g;            // 重力加速度
+        private float _depth;        // 水深
+        private float _fetch;        // 有效风区长度
+        private Vector2 _windVec;    // 风矢量
+        private float _omegaP;       // 峰值角频率
+
+        private float _omegaMin;
+        private float _omegaMax;
+        private float _deltaOmega;
+        private float _deltaTheta;
+
+        // 分桶频率与由其派生的量
+        private float[] _omegas;       // ω[i]
+        private float[] _ks;           // k[i]
+        private float[] _radii;        // radius[i] = π/k
+        private float[] _phaseSpeeds;  // c[i] = sqrt(g/k)
+        private float[] _omegaPow3;    // ω^3（用于 per-frame 公式）
+        private float[] _omegaPow4;    // ω^4（用于全区域公式）
+
+        // 小数累计
         public List<float> batchAccumulate = new List<float>();
 
-        public void Initialize(int N_omega) {
-            batchAccumulate = new List<float>(new float[N_omega]);
+        /// <summary>
+        /// 预计算所有与频率/方向相关、可跨帧复用的量。
+        /// </summary>
+        public void Initialize(WavesSettings ws, int N_omega = 8, int N_theta = 8)
+        {
+            _ws = ws;
+            _Nomega = Mathf.Max(1, N_omega);
+            _Ntheta = Mathf.Max(1, N_theta);
+
+            // 缓存常用参数
+            _g = ws.g;
+            _depth = ws.depth;
+            _fetch = ws.local.fetch;
+            _windVec = ws.local.windSpeed;
+            _omegaP = ws.spectrums[0].peakOmega;
+
+            // 频率采样区间 & 步长
+            _omegaMin = _omegaP * 0.5f;
+            _omegaMax = _omegaP * 2.5f;
+            _deltaOmega = (_omegaMax - _omegaMin) / _Nomega;
+            _deltaTheta = 2f * Mathf.PI / _Ntheta;
+
+            // 分配数组
+            _omegas = new float[_Nomega];
+            _ks = new float[_Nomega];
+            _radii = new float[_Nomega];
+            _phaseSpeeds = new float[_Nomega];
+            _omegaPow3 = new float[_Nomega];
+            _omegaPow4 = new float[_Nomega];
+
+            // 逐桶预计算
+            for (int iw = 0; iw < _Nomega; iw++)
+            {
+                float omega = _omegaMin + _deltaOmega * (iw + 0.5f);
+                float k = omega * omega / _g;
+
+                _omegas[iw] = omega;
+                _ks[iw] = k;
+                _radii[iw] = Mathf.PI / k;
+                _phaseSpeeds[iw] = Mathf.Sqrt(_g / k);
+                _omegaPow3[iw] = omega * omega * omega;
+                _omegaPow4[iw] = _omegaPow3[iw] * omega;
+            }
+
+            // 重置小数累加器
+            batchAccumulate = new List<float>(new float[_Nomega]);
+
+            _initialized = true;
         }
-        // 主函数：采样并按radius/omega分桶
+
+        // ====== 生成函数 ======
+
         public NativeList<WaveParticle> GenerateParticlesFromSpectrum(
+            WavesSettings ws,
+            Vector2 regionCenter,
+            Vector2 regionSize,
+            int N_omega = 8,
+            int N_theta = 8,
+            Allocator allocator = Allocator.Persistent)
+        {
+            // 若参数变化（例如不同分辨率），允许动态再初始化
+            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws)
+            {
+                Initialize(ws, N_omega, N_theta);
+            }
+
+            var particles = new NativeList<WaveParticle>(allocator);
+
+            // 注意：本函数的 batchSize ~ ω^4 * regionSize.x^2 （你原式）
+            // 仅剩与 regionSize 相关的因子在此处计算即可
+            float regionFactor = regionSize.x * regionSize.x * 8f / (Mathf.PI * Mathf.PI * Mathf.PI * _g * _g);
+
+            for (int iw = 0; iw < _Nomega; iw++)
+            {
+                float omega = _omegas[iw];
+                float k = _ks[iw];
+                float radius = _radii[iw];
+                float phaseSpeed = _phaseSpeeds[iw];
+
+                float batchSize = _omegaPow4[iw] * regionFactor;
+
+                // 小数累加→取整
+                batchAccumulate[iw] += batchSize;
+                int nBatch = Mathf.FloorToInt(batchAccumulate[iw]);
+                batchAccumulate[iw] -= nBatch;
+
+                for (int batch = 0; batch < nBatch; batch++)
+                {
+                    for (int itheta = 0; itheta < _Ntheta; itheta++)
+                    {
+                        float theta = _deltaTheta * itheta;
+                        Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
+
+                        float S = JONSWAPSpectrumCached(omega, dir);
+                        if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
+
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmega * _deltaTheta);
+                        Vector2 pos = SamplePositionInRegion(regionCenter, regionSize);
+
+                        var particle = new WaveParticle
+                        {
+                            position = pos,
+                            direction = dir.normalized,
+                            height = amplitude,
+                            omega = omega,
+                            k = k,
+                            radius = radius,
+                            speed = phaseSpeed,
+                            bucketNum = iw
+                        };
+                        particles.Add(particle);
+
+                        // 反向粒子（可选）
+                        particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
+                    }
+                }
+            }
+            return particles;
+        }
+
+        /// <summary>
+        /// 主函数：采样并按radius/omega分桶（逐帧边界生成）
+        /// </summary>
+        public NativeList<WaveParticle> GenerateParticlesFromSpectrumPerFrame(
             WavesSettings ws,
             Vector2 regionCenter,
             Vector2 regionSize,
@@ -30,42 +173,42 @@ namespace Assets.Scripts
             float deltaTime = 0.02f,
             Allocator allocator = Allocator.Persistent)
         {
+            // 若参数变化（例如不同分辨率），允许动态再初始化
+            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws)
+            {
+                Initialize(ws, N_omega, N_theta);
+            }
+
             var particles = new NativeList<WaveParticle>(allocator);
 
-            // omega采样区间
-            float omega_p = ws.spectrums[0].peakOmega;
-            float omega_min = omega_p * 0.5f;
-            float omega_max = omega_p * 2.5f;
-            float delta_omega = (omega_max - omega_min) / N_omega;
-            float delta_theta = 2 * Mathf.PI / N_theta;
-            //Debug.Log("delta omega : " + delta_omega);
-            for (int iw = 0; iw < N_omega; iw++)
+            // 本函数的 batchSize ~ ω^3 * deltaTime * regionSize.x
+            float regionFrameFactor = deltaTime * regionSize.x * 8f / (Mathf.PI * Mathf.PI * Mathf.PI * _g);
+
+            for (int iw = 0; iw < _Nomega; iw++)
             {
-                float omega = omega_min + delta_omega * (iw + 0.5f);
-                float k = omega * omega / ws.g;
-                float radius = Mathf.PI / k;
-                float phaseSpeed = Mathf.Sqrt(ws.g / k);
-                float batchSize = omega * omega * omega * deltaTime * regionSize.x * 8f / (Mathf.PI * Mathf.PI * Mathf.PI * ws.g);
-                //float batchSize = omega * deltaTime * regionSize.x * 2f / Mathf.PI;
-                //batchSize = 4;
-                //Debug.Log("omega : "+ omega + " with batchSize : " + batchSize);
-                // **小数累加与取整生成 batch**
+                float omega = _omegas[iw];
+                float k = _ks[iw];
+                float radius = _radii[iw];
+                float phaseSpeed = _phaseSpeeds[iw];
+
+                float batchSize = _omegaPow3[iw] * regionFrameFactor;
+
+                // 小数累加→取整
                 batchAccumulate[iw] += batchSize;
                 int nBatch = Mathf.FloorToInt(batchAccumulate[iw]);
                 batchAccumulate[iw] -= nBatch;
 
-                for (int batch = 0; batch < nBatch; batch++) {
-                    for (int itheta = 0; itheta < N_theta; itheta++)
+                for (int batch = 0; batch < nBatch; batch++)
+                {
+                    for (int itheta = 0; itheta < _Ntheta; itheta++)
                     {
-                        float theta = delta_theta * (itheta);
+                        float theta = _deltaTheta * itheta;
                         Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
-                        float S = JONSWAPSpectrum(omega, omega_p, dir, ws.local.windSpeed, ws.g, ws.depth, ws.local.fetch);
-                        //Debug.Log("omega: "+omega+" S: "+S + " delta_omega: "+delta_omega + " delta_theta: "+delta_theta);
+                        float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
-                        float amplitude = Mathf.Sqrt(2f * S * delta_omega * delta_theta);
-
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmega * _deltaTheta);
                         Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
 
                         var particle = new WaveParticle
@@ -81,7 +224,7 @@ namespace Assets.Scripts
                         };
                         particles.Add(particle);
 
-                        // 反向粒子可选加进来
+                        // 反向粒子（可选）
                         particles.Add(particle.GetNegative(regionSize.x, regionSize.x));
                     }
                 }
@@ -89,77 +232,88 @@ namespace Assets.Scripts
             return particles;
         }
 
-            /// <summary>
-            /// 计算带方向和深度修正的 JONSWAP 频谱密度 S(k,dir) 风浪Wind Wave用
-            /// </summary>
-            /// <param name="k">波数大小</param>
-            /// <param name="dir">波数方向（单位向量）</param>
-            /// <param name="windVec">风速矢量（含大小和方向）</param>
-            /// <param name="g">重力加速度（9.81）</param>
-            /// <param name="depth">水深</param>
-            /// <param name="fetch">有效风区长度（可用海面长度代替）</param>
-            public float JONSWAPSpectrum(
+        // ====== 频谱：保留原公共接口 + 新的缓存版 ======
+
+        /// <summary>
+        /// 原版（保持兼容）：带方向和深度修正的 JONSWAP 频谱密度
+        /// </summary>
+        public float JONSWAPSpectrum(
             float ω,
             float ωp,
             Vector2 dir,
             Vector2 windVec,
             float g,
-            float depth,  
+            float depth,
             float fetch
         )
         {
-            // 转成角频率 ω = sqrt(g k)
-            //float ω = Mathf.Sqrt(g * k);
             float k = ω * ω / g;
             float U = windVec.magnitude;
 
-            // 计算谱无方向部分 Sjw(ω)
             float α = 0.076f * Mathf.Pow((U * U) / (g * fetch), 0.22f);
             float γ = 3.3f;
-            //float γ = 7.0f * Mathf.Pow((g * fetch / U / U), -0.142f);
             float σ = (ω <= ωp) ? 0.07f : 0.09f;
             float r = Mathf.Exp(-Mathf.Pow((ω - ωp), 2f) / (2f * σ * σ * ωp * ωp));
             float S0 = (α * g * g) / Mathf.Pow(ω, 5f)
-                     * Mathf.Exp(-1.25f * Mathf.Pow(ωp / ω, 4f))
-                     * Mathf.Pow(γ, r);
-            if (float.IsNaN(S0) || float.IsInfinity(S0))
-            {
-                //Debug.Log("S0: NaN"); , 
-            }
-            //Debug.Log("omega: "+ ω+" S0: " +S0);
-            // 有限深度 TMA 修正
+                       * Mathf.Exp(-1.25f * Mathf.Pow(ωp / ω, 4f))
+                       * Mathf.Pow(γ, r);
+
             float ωh = ω * Mathf.Sqrt(depth / g);
             float TMA = ωh <= 1f
                 ? 0.5f * ωh * ωh
-                : (ωh < 2f
-                   ? 1f - 0.5f * Mathf.Pow(2f - ωh, 2f)
-                   : 1f);
+                : (ωh < 2f ? 1f - 0.5f * Mathf.Pow(2f - ωh, 2f) : 1f);
 
             float S_deep = S0 * TMA;
 
-            // 方向性修正 D(θ)
-            //    θ = 波向 与 风向 夹角
             float θ = Vector2.SignedAngle(windVec.normalized, dir) * Mathf.Deg2Rad;
-            //    一般用 cos^n 展开，指数 n 随 ω/ωp 而变化
             float μ = (ω <= ωp) ? 5f : -2.5f;
             float n = 16f * Mathf.Pow(ω / ωp, μ);
-            float cosHalfTheta = Mathf.Cos(θ / 2f);
-            cosHalfTheta = Mathf.Clamp01(cosHalfTheta); // 0~1之间，防止负数
-            float D;
-            if (cosHalfTheta == 0f && n != 0f)
-                D = 0f;
-            else
-                D = (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(cosHalfTheta, n);
-                //D = (n + 1f) / (2f * Mathf.Sqrt(Mathf.PI) * (n + 0.5f)) * Mathf.Pow(cosHalfTheta, n);
+            float cosHalfTheta = Mathf.Clamp01(Mathf.Cos(θ / 2f));
+            float D = (cosHalfTheta == 0f && n != 0f)
+                ? 0f
+                : (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(cosHalfTheta, n);
 
-            if (float.IsNaN(D) || float.IsInfinity(D))
-            {
-                D = 0f; // 强制安全
-            }
-            // 转换到 S(k) = S(ω) · (dω/dk) = S_deep · (1/2) sqrt(g/k)
             float domega_dk = 0.5f * Mathf.Sqrt(g / k);
             return S_deep * D * domega_dk;
         }
+
+        /// <summary>
+        /// 缓存版：内部直接用缓存的 g/depth/fetch/wind/omega_p，加速调用。
+        /// </summary>
+        private float JONSWAPSpectrumCached(float ω, Vector2 dir)
+        {
+            // 这里直接复用上面的公式，但把参数替换为缓存
+            float k = ω * ω / _g;
+            float U = _windVec.magnitude;
+
+            float α = 0.076f * Mathf.Pow((U * U) / (_g * _fetch), 0.22f);
+            float γ = 3.3f;
+            float σ = (ω <= _omegaP) ? 0.07f : 0.09f;
+            float r = Mathf.Exp(-Mathf.Pow((ω - _omegaP), 2f) / (2f * σ * σ * _omegaP * _omegaP));
+            float S0 = (α * _g * _g) / Mathf.Pow(ω, 5f)
+                       * Mathf.Exp(-1.25f * Mathf.Pow(_omegaP / ω, 4f))
+                       * Mathf.Pow(γ, r);
+
+            float ωh = ω * Mathf.Sqrt(_depth / _g);
+            float TMA = ωh <= 1f
+                ? 0.5f * ωh * ωh
+                : (ωh < 2f ? 1f - 0.5f * Mathf.Pow(2f - ωh, 2f) : 1f);
+
+            float S_deep = S0 * TMA;
+
+            float θ = Vector2.SignedAngle(_windVec.normalized, dir) * Mathf.Deg2Rad;
+            float μ = (ω <= _omegaP) ? 5f : -2.5f;
+            float n = 16f * Mathf.Pow(ω / _omegaP, μ);
+            float cosHalfTheta = Mathf.Clamp01(Mathf.Cos(θ / 2f));
+            float D = (cosHalfTheta == 0f && n != 0f)
+                ? 0f
+                : (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(cosHalfTheta, n);
+
+            float domega_dk = 0.5f * Mathf.Sqrt(_g / k);
+            return S_deep * D * domega_dk;
+        }
+
+        // ====== 采样 ======
 
         /// <summary>
         /// 从长方形区域边缘采样一个粒子位置，用于实现边界粒子生成。
@@ -168,7 +322,6 @@ namespace Assets.Scripts
         {
             float halfX = size.x * 0.5f;
             float halfY = size.y * 0.5f;
-            // u分别控制在长宽范围
             float uX = Random.Range(-halfX, halfX);
             float uY = Random.Range(-halfY, halfY);
 
@@ -182,5 +335,16 @@ namespace Assets.Scripts
             return center;
         }
 
+        /// <summary>
+        /// 从长方形区域内部采样一个粒子位置，用于实现边界粒子生成。
+        /// </summary>
+        Vector2 SamplePositionInRegion(Vector2 center, Vector2 size)
+        {
+            float halfX = size.x * 0.5f;
+            float halfY = size.y * 0.5f;
+            float uX = Random.Range(-halfX, halfX);
+            float uY = Random.Range(-halfY, halfY);
+            return center + new Vector2(uX, uY);
+        }
     }
 }

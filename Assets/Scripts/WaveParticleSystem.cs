@@ -231,7 +231,7 @@ namespace Assets.Scripts
             radiiBuf.SetData(bucketRadii);
 
             fixedFrameCnt = 0;
-            converter.Initialize(N_omega);
+            converter.Initialize(wavesSettings,N_omega,N_theta);
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
 
@@ -268,7 +268,7 @@ namespace Assets.Scripts
                 var region = waveParticleRegions[r];
 
                 // 0) 按需生成边界粒子（你原来的逻辑）
-                using (var edgeParticles = converter.GenerateParticlesFromSpectrum(
+                using (var edgeParticles = converter.GenerateParticlesFromSpectrumPerFrame(
                     ws: wavesSettings,
                     regionCenter: region.center,
                     regionSize: region.size,
@@ -698,7 +698,7 @@ namespace Assets.Scripts
 
         public void GenerateWaveParticles(int regionIdx, Vector2 pos, float V, Vector3 vel, float dt, int dirSampleCount = 16)
         {
-            Debug.Log("v:" + vel+" "+dt);
+            //Debug.Log("v:" + vel+" "+dt);
             if (regionIdx < 0 || regionIdx >= waveParticleRegions.Count) return;
             if (dirSampleCount <= 0) return;
             var region = waveParticleRegions[regionIdx];
@@ -740,10 +740,10 @@ namespace Assets.Scripts
                 float signY = (vy >= 0f) ? -1f : 1f;
 
                 // 系数可按项目调（竖直项）
-                const float K_ampY = 0.025f;
-                float A_total_Y = signY * S_inwater * cY * dt / (1.4535f * bucketRadii[bucketY] * bucketRadii[bucketY]);
+                const float K_ampY = 2.0f;
+                float A_total_Y = K_ampY * signY * S_inwater * cY * dt / (1.4535f * bucketRadii[bucketY] * bucketRadii[bucketY]);
                 A_total_Y = Mathf.Clamp(A_total_Y, -5f, 5f);
-                Debug.Log("S:" + S_inwater+ "cY:"+cY + "Total A_Y:" +A_total_Y+" Radius Y:"+bucketRadii[bucketY]);
+                //Debug.Log("S:" + S_inwater+ "cY:"+cY + "Total A_Y:" +A_total_Y+" Radius Y:"+bucketRadii[bucketY]);
                 float a_i = A_total_Y / dirSampleCount; // 均匀分摊
                 if (Mathf.Abs(a_i) > 1e-7f)
                 {
@@ -770,7 +770,7 @@ namespace Assets.Scripts
             }
 
             // ==============================
-            // 2) 水平分量：Kelvin 尾迹双峰
+            // 2) 水平分量：Kelvin 尾迹双峰（只在下游半平面）
             // ==============================
             Vector2 vH = new Vector2(vel.x, vel.z);
             float cH = vH.magnitude;
@@ -779,39 +779,59 @@ namespace Assets.Scripts
                 int bucketH = PickBucketBySpeed(cH, out float rH, out float kH, out float omegaH);
 
                 Vector2 vH_dir = vH / cH;
-                // Kelvin 脊角（约 19.47°）
+                Vector2 downstream = -vH_dir; // 仅允许下游半平面
+                                              // Kelvin 脊角（≈19.47°）
                 const float thetaK = 0.3398369095f;
 
-                // 脊方向以“背向速度”为轴线（船后），加减 Kelvin 角
-                float backAng = Mathf.Atan2(-vH_dir.y, -vH_dir.x);
-                float lobeAngL = backAng + thetaK;
-                float lobeAngR = backAng - thetaK;
-
-                // von Mises 双峰 + 背景噪声（水平速度越大 -> 越尖锐/越纯）
-                float kappa = Mathf.Lerp(4f, 24f, Mathf.Clamp01(cH / (cH + 1f)));
-                float epsilon = Mathf.Lerp(0.15f, 0.02f, Mathf.Clamp01(cH / (cH + 1f)));
+                // 高斯峰宽度（σ）：越小越尖锐；可随速度调
+                float sigma = Mathf.Lerp(0.20f, 0.08f, Mathf.Clamp01(cH / (cH + 1f)));
+                float inv2sigma2 = 1f / (2f * sigma * sigma);
+                float epsilon = 0.0f; // 或者 0.01f，尽量小，避免前向伪峰
 
                 float[] w = new float[dirSampleCount];
                 float wsum = 0f;
+
                 for (int i = 0; i < dirSampleCount; i++)
                 {
                     float ang = i * Mathf.PI * 2f / dirSampleCount;
-                    float dL = Mathf.Repeat((ang - lobeAngL) + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
-                    float dR = Mathf.Repeat((ang - lobeAngR) + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
-                    float peakL = Mathf.Exp(kappa * Mathf.Cos(dL));
-                    float peakR = Mathf.Exp(kappa * Mathf.Cos(dR));
-                    w[i] = epsilon + peakL + peakR;
+                    Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+
+                    // 半平面裁剪：只在下游(与 -vH_dir 同向)造波
+                    if (Vector2.Dot(dir, downstream) <= 0f)
+                    {
+                        w[i] = 0f;
+                        continue;
+                    }
+
+                    // 计算 dir 相对“下游轴”的有符号夹角 φ ∈ (-π, π]
+                    float phi = Mathf.Atan2(dir.y, dir.x) - Mathf.Atan2(downstream.y, downstream.x);
+                    // wrap 到 [-π, π]
+                    phi = Mathf.Repeat(phi + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
+
+                    // 两个高斯峰，中心在 ±thetaK
+                    float peakL = Mathf.Exp(-((phi - thetaK) * (phi - thetaK)) * inv2sigma2);
+                    float peakR = Mathf.Exp(-((phi + thetaK) * (phi + thetaK)) * inv2sigma2);
+
+                    // 可选：把 |φ| 超过 90° 的方向衰减甚至置零（更干净的 V 型）
+                    float hemiWindow = Mathf.Clamp01((Mathf.PI * 0.5f - Mathf.Abs(phi)) / (Mathf.PI * 0.5f));
+                    hemiWindow = hemiWindow * hemiWindow; // 平滑点
+
+                    w[i] = hemiWindow * (peakL + peakR) + epsilon;
                     wsum += w[i];
                 }
-                if (wsum < 1e-6f) { for (int i = 0; i < dirSampleCount; i++) w[i] = 1f; wsum = dirSampleCount; }
 
-                // 水平项的总振幅（可单独系数）
-                const float K_ampH = 0.0030f;
-                float A_total_H = S_inwater * cH * dt / (1.4535f * bucketRadii[bucketH] * bucketRadii[bucketH]);
+                if (wsum < 1e-6f) return;
+
+                // 水平项总振幅（沿用你的体积-速度-时间缩放）
+                // 系数可按项目调（竖直项）
+                const float K_ampH = 0.5f;
+                float A_total_H = K_ampH * S_inwater * cH * dt / (1.4535f * bucketRadii[bucketH] * bucketRadii[bucketH]);
                 A_total_H = Mathf.Clamp(A_total_H, -5f, 5f);
-                Debug.Log("Total A_H:" + A_total_H + " Radius H:" + bucketRadii[bucketH]);
+
                 for (int i = 0; i < dirSampleCount; i++)
                 {
+                    if (w[i] <= 0f) continue;
+
                     float ang = i * Mathf.PI * 2f / dirSampleCount;
                     Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
                     float a_i = A_total_H * (w[i] / wsum);
@@ -824,7 +844,7 @@ namespace Assets.Scripts
                         position = ppos,
                         height = a_i,
                         direction = dir,
-                        speed = cH,      // 与船水平速度一致
+                        speed = cH,
                         radius = rH,
                         omega = omegaH,
                         k = kH,
@@ -833,6 +853,7 @@ namespace Assets.Scripts
                     waveParticleRegions[regionIdx].buckets[bucketH].Add(p);
                 }
             }
+
         }
 
 
