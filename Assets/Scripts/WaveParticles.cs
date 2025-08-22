@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEngine;
 using System.Text;
 using System.Threading.Tasks;
+using Unity.Mathematics;
 
 namespace Assets.Scripts
 {
@@ -13,8 +14,8 @@ namespace Assets.Scripts
     public struct WaveParticle
     {
         // 基础物理属性
-        public Vector2 position;      // 当前位置（原WavePos）
-        public Vector2 direction;     // 传播方向（原WaveDir）
+        public float2 position;      // 当前位置（原WavePos）
+        public float2 direction;     // 传播方向（原WaveDir）
         public float height;          // 波峰高度（原WaveHeight）
         public float speed;           // 传播速度（原WaveSpeed）
         public float radius;          // 影响半径（原Radius）
@@ -26,9 +27,9 @@ namespace Assets.Scripts
         public WaveParticle GetNegative(float planSize,  float oceanSize)
         {
             // 归一化方向向量
-            Vector2 dirNorm = this.direction.normalized;
+            float2 dirNorm = math.normalize(this.direction);
             // 负粒子位置：沿 direction 负方向偏移一个 radius
-            Vector2 negPos = this.position - dirNorm * this.radius * planSize / oceanSize;
+            float2 negPos = this.position - dirNorm * this.radius * planSize / oceanSize;
 
             WaveParticle ret = new WaveParticle
             {
@@ -61,7 +62,7 @@ namespace Assets.Scripts
         {
             return new Vector2(direction.x, direction.y);
         }
-        public Vector2 GetVelocity()
+        public float2 GetVelocity()
         {
             return direction * speed;
         }

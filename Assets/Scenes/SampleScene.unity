@@ -213,6 +213,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  seedOnStart: 1
   fixedFrameCnt: 0
   particleCnt: 0
   waveParticleRegions:
@@ -220,8 +221,8 @@ MonoBehaviour:
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
-  MAX_PARTICLES: 500000
-  N_omega: 10
+  MAX_PARTICLES: 700000
+  N_omega: 8
   N_theta: 16
   bucketCounts: 
   bucketRadii: []
@@ -462,6 +463,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  estimatedVolume_m3: 64.041916
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000
@@ -746,6 +748,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  estimatedVolume_m3: 161.82777
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000
@@ -1385,6 +1388,11 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: -7511558181221131132, guid: fd5eb171f365dc347b5a7cce605b8b0d,
+        type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       propertyPath: m_Name
@@ -1393,7 +1401,7 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -1430,7 +1438,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1336822120}
   serializedVersion: 4
-  m_Mass: 30000
+  m_Mass: 10000
   m_Drag: 0.5
   m_AngularDrag: 0.6
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -1495,6 +1503,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  estimatedVolume_m3: 40.677647
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000
@@ -1601,6 +1610,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cbd3c9de5f430346b3020f42ab75cd2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  seedOnStart: 1
   fixedFrameCnt: 0
   particleCnt: 0
   waveParticleRegions: []
@@ -1804,6 +1814,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 694ff4f155f8f9847b0308a77c94d98a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  estimatedVolume_m3: 125
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000

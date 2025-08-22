@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
@@ -17,13 +18,17 @@ namespace Assets.Scripts
 
 
         // 基础配置参数
+        [Header("初始化播种")]
+        [SerializeField] bool seedOnStart = true;   // 是否在 Start() 首帧播种
+
         [Header("基础参数")]
         [SerializeField]
         public int fixedFrameCnt;
         public int particleCnt;
         public List<WaveParticleRegion> waveParticleRegions;
         public WavesSettings wavesSettings;
-        public SpectrumToParticlesConverter converter = new SpectrumToParticlesConverter();
+        public SpectrumToParticlesConverter converter = new();
+
         [Header("最大渲染数量相关参数")]
         [SerializeField] public int MAX_REGIONS = 3;
         [SerializeField] public int MAX_PARTICLES = 1000000;
@@ -38,8 +43,6 @@ namespace Assets.Scripts
         //private RenderTexture[] displacementSlices; // 横向分量 Tex2DArray：RGFloat
         //private RenderTexture[] velocityXSlicesInt; // 横向分量 X RFloat
         //private RenderTexture[] velocityYSlicesInt; // 横向分量 Y RFloat
-
-
 
         private ComputeBuffer[][] particleBuffersPerBucket; // [region][bucket]
         private ComputeBuffer[][] particleVelBuffersPerBucket; // [region][bucket]
@@ -69,8 +72,8 @@ namespace Assets.Scripts
 
         [SerializeField] Material oceanMaterial;
 
-        Vector4[] particleData;
-        Vector2[] particleVelData;
+        //Vector4[] particleData;
+        //Vector2[] particleVelData;
 
         [Header("Debug")]
         float curTime;
@@ -104,8 +107,8 @@ namespace Assets.Scripts
             Debug.Log("Graphics API: " + SystemInfo.graphicsDeviceType);
             Debug.Log("WaveParticleSystem Start called!");
             particleCnt = 0;
-            particleData = new Vector4[MAX_PARTICLES];
-            particleVelData = new Vector2[MAX_PARTICLES];
+            //particleData = new Vector4[MAX_PARTICLES];
+            //particleVelData = new Vector2[MAX_PARTICLES];
             Debug.Log($"Generated {waveParticleRegions.Count()} wave particle regions");
             if (waveParticleRegions.Count == 0)
             {
@@ -191,8 +194,21 @@ namespace Assets.Scripts
                 particleVelBuffersPerBucket[i] = new ComputeBuffer[N_omega];
 
                 for (int b = 0; b < N_omega; b++) {
-                    particleBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
-                    particleVelBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
+                    //particleBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 4);
+                    //particleVelBuffersPerBucket[i][b] = new ComputeBuffer(MAX_PARTICLES, sizeof(float) * 2);
+                    particleBuffersPerBucket[i][b] =
+                        new ComputeBuffer(
+                            MAX_PARTICLES,
+                            sizeof(float) * 4,
+                            ComputeBufferType.Structured,
+                            ComputeBufferMode.SubUpdates);
+
+                    particleVelBuffersPerBucket[i][b] =
+                        new ComputeBuffer(
+                            MAX_PARTICLES,
+                            sizeof(float) * 2,
+                            ComputeBufferType.Structured,
+                            ComputeBufferMode.SubUpdates);
                 }
 
                 if (normalMapT2D == null) normalMapT2D = new Texture2D[MAX_REGIONS];
@@ -222,10 +238,20 @@ namespace Assets.Scripts
 
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
-
             //测试用
             _slicePreviewRT = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.ARGBFloat);
             _slicePreviewRT.Create();
+
+            // 第一帧初始化
+
+            if (seedOnStart)
+            {
+                for (int r = 0; r < Mathf.Min(waveParticleRegions.Count, MAX_REGIONS); r++)
+                {
+                    SeedRegionOnceFromSpectrum(r);
+                }
+            }
+
         }
         public void Update()
         {
@@ -268,16 +294,32 @@ namespace Assets.Scripts
                     AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
                 }
 
+                sw.Stop();
+                //Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 1) 更新粒子（分桶并行） 2) 剔除越界粒子
                 UpdateRegionParticlesBuckets(r, dt);
 
+                sw.Stop();
+                //Debug.Log($"Step 1,2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 3) 统计并上传每桶粒子（只传有效段）
                 UpdateRegionParticleBufferBuckets(r);
+
+                sw.Stop();
+                //Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 4) 清零该 region 的 RInt array
                 ClearArraySlices(heightSlicesInt[r], N_omega);
                 //ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
                 //ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
+
+                sw.Stop();
+                //Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 5) Splat（每桶一次，写入对应 slice）
                 int kS = SplatBucketsCS.FindKernel("SplatBucket");
@@ -312,6 +354,10 @@ namespace Assets.Scripts
                     particleCnt += count;
                 }
 
+                sw.Stop();
+                //Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 6) Int2Float（array 版本）
                 int kI2F = Int2FloatArrayCS.FindKernel("IntToFloatArray");
                 Int2FloatArrayCS.SetTexture(kI2F, "Source", heightSlicesInt[r]);
@@ -320,6 +366,10 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.SetFloat("Scale", 1000f);
                 Int2FloatArrayCS.SetInt("SliceCount", N_omega);
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                sw.Stop();
+                //Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // int2float for vel
                 //int kV2F = Int2FloatArrayCS.FindKernel("IntToFloatArrayVelocity");
@@ -359,6 +409,10 @@ namespace Assets.Scripts
                 // Vertical 一次跑完所有 slices
                 SeparableFilterCS.Dispatch(kV, gx, gy, N_omega);
 
+                sw.Stop();
+                //Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 8) 合并 slices → heightMap[r]（float）
                 int kR = ReduceSlicesCS.FindKernel("SumSlices");
                 ReduceSlicesCS.SetTexture(kR, "_HeightMapArray", heightSlicesFloat[r]);
@@ -366,6 +420,10 @@ namespace Assets.Scripts
                 ReduceSlicesCS.SetInts("_TexSize", resolution, resolution);
                 ReduceSlicesCS.SetInt("_SliceCount", N_omega);
                 ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                sw.Stop();
+                //Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // debug 高度图
                 //EnqueueAverageHeightLogCPU(r);
@@ -375,7 +433,12 @@ namespace Assets.Scripts
                 Height2NormalComputeShader.SetTexture(kN, "HeightTex", heightMap[r]);
                 Height2NormalComputeShader.SetTexture(kN, "NormalTex", normalMap[r]);
                 Height2NormalComputeShader.SetInts("TexSize", resolution, resolution);
+                Height2NormalComputeShader.SetVector("RegionSize", region.size);   // ← 新增
                 Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
+
+                sw.Stop();
+                //Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
 
                 // 10) 传材质
                 oceanMaterial.SetTexture($"_ParticleHeightMap{r}", heightMap[r]);
@@ -383,8 +446,17 @@ namespace Assets.Scripts
                 oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
+                sw.Stop();
+                //Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
                 // 11) 更新texture2d for interact
                 SyncRegionTexturesToCPU(r);
+
+                sw.Stop();
+                //Debug.Log($"Step 11 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
+                sw.Restart();
+
             }
 
             // 看第0个region的第b个bucket
@@ -394,6 +466,46 @@ namespace Assets.Scripts
             //DebugSliceStats(0, 1);
             //DebugSliceStats(0, 2);
             //DebugSliceStats(0, 3);
+        }
+
+        void SeedRegionOnceFromSpectrum(int regionIdx)
+        {
+            if (regionIdx < 0 || regionIdx >= waveParticleRegions.Count) return;
+
+            var region = waveParticleRegions[regionIdx];
+
+            // 生成整域粒子（一次性）
+            using (var initParticles = converter.GenerateParticlesFromSpectrum(
+                       ws: wavesSettings,
+                       regionCenter: region.center,
+                       regionSize: region.size,
+                       N_omega: N_omega,
+                       N_theta: N_theta,
+                       allocator: Allocator.TempJob)) // TempJob 即可
+            {
+                // 先统计各 bucket 的数量 → 预留容量，避免 Add 过程中多次扩容
+                var counts = new int[N_omega];
+                var arr = initParticles.AsArray();
+                for (int i = 0; i < arr.Length; i++)
+                {
+                    int b = Mathf.Clamp(arr[i].bucketNum, 0, N_omega - 1);
+                    counts[b]++;
+                }
+                for (int b = 0; b < N_omega; b++)
+                {
+                    // buckets[b] 现容量不足则提升（只增不减）
+                    if (region.buckets[b].Capacity < counts[b])
+                        region.buckets[b].Capacity = counts[b];
+                }
+
+                // 把粒子放入对应 bucket
+                for (int i = 0; i < arr.Length; i++)
+                {
+                    var p = arr[i];
+                    int b = Mathf.Clamp(p.bucketNum, 0, N_omega - 1);
+                    region.buckets[b].AddNoResize(p); // 容量已预留，避免分配
+                }
+            }
         }
 
         // 把新生成的粒子直接丢进对应的 bucket（在 FixedUpdate 里生成完后调用）
@@ -411,24 +523,18 @@ namespace Assets.Scripts
             }
         }
 
-        void UpdateRegionParticlesBuckets(int idx, float dt)
+        /*void UpdateRegionParticlesBuckets(int idx, float dt)
         {
             var region = waveParticleRegions[idx];
-            var handles = new Unity.Collections.NativeArray<JobHandle>(N_omega, Allocator.Temp);
+            //var handles = new NativeArray<JobHandle>(N_omega, Allocator.Temp);
+            JobHandle combined = default;
 
             for (int b = 0; b < N_omega; b++)
             {
                 var arr = region.buckets[b].AsArray();
                 int len = arr.Length;
-
-                // 即使 len == 0 也清一下 scratch，避免残留
                 region.EnsureScratchCapacity(b, len);
-
-                if (len == 0)
-                {
-                    handles[b] = default;
-                    continue;
-                }
+                if (len == 0) continue;
 
                 var job = new WaveParticleUpdateCullJob
                 {
@@ -442,18 +548,79 @@ namespace Assets.Scripts
                 };
 
                 // 每个 bucket 一条并行任务，批大小可按硬件调 64/128
-                handles[b] = job.Schedule(len, 64);
+                var handle = job.Schedule(len, 128);
+                combined = JobHandle.CombineDependencies(combined, handle);
             }
-
-            JobHandle.CompleteAll(handles);
-            handles.Dispose();
+            combined.Complete();
 
             // 零拷贝切换：scratch -> buckets
+            region.SwapBuckets();
+        }*/
+        void UpdateRegionParticlesBuckets(int idx, float dt)
+        {
+            var region = waveParticleRegions[idx];
+
+            // 预先算好比例，减少每粒子的除法
+            float planeScale = region.size.x / oceanSize; // 你原来是 planeSize=region.size.x
+
+            // 我们为每个 bucket 做：并行 更新+标记 -> 单 job 压缩
+            NativeArray<JobHandle> handles = new NativeArray<JobHandle>(N_omega * 2, Allocator.Temp);
+            int h = 0;
+
+            for (int b = 0; b < N_omega; b++)
+            {
+                var src = region.buckets[b].AsArray();
+                int len = src.Length;
+                region.EnsureScratchCapacity(b, len);  // 目标 outList 提前扩容（下一步压缩写）
+
+                if (len == 0) { region.scratch[b].Clear(); continue; }
+
+                // 暂存 updated 与 alive（临时栈/帧内存，不进托管堆）
+                var updated = new NativeArray<WaveParticle>(len, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                var alive = new NativeArray<byte>(len, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+                // 并行：更新 + 标记
+                var updHandle = new UpdateMarkAliveJob
+                {
+                    src = src,
+                    dst = updated,
+                    alive = alive,
+                    deltaTime = dt,
+                    planeScale = planeScale,
+                    regionCenter = region.center,
+                    regionHalf = region.size * 0.5f
+                }.Schedule(len, 128);
+
+                // 单通道（或粗粒度并行）压缩：顺序写入 scratch[b]
+                var compactHandle = new CompactAliveJob
+                {
+                    updated = updated,
+                    alive = alive,
+                    outList = region.scratch[b]
+                }.Schedule(updHandle);
+
+                // 释放临时内存
+                JobHandle disposeUpdated = updated.Dispose(compactHandle);
+                JobHandle disposeAlive = alive.Dispose(compactHandle);
+                handles[h++] = disposeUpdated;
+                handles[h++] = disposeAlive;
+
+            }
+
+            // 等所有 bucket 完成
+            if (h > 0)
+            {
+                var combined = JobHandle.CombineDependencies(handles.GetSubArray(0, h));
+                combined.Complete();
+            }
+            handles.Dispose();
+
+            // 零拷贝切换 scratch -> buckets
             region.SwapBuckets();
         }
 
 
-        void UpdateRegionParticleBufferBuckets(int idx)
+        /*void UpdateRegionParticleBufferBuckets(int idx)
         {
             var region = waveParticleRegions[idx];
             for (int b = 0; b < N_omega; b++)
@@ -465,12 +632,78 @@ namespace Assets.Scripts
                 // 打包到复用数组（或改用 BeginWrite/EndWrite + NativeArray）
                 for (int i = 0; i < count; i++) {
                     particleData[i] = region.buckets[b][i].ToVector4();
-                    particleVelData[i] = region.buckets[b][i].GetVelocity();
+                    //particleVelData[i] = region.buckets[b][i].GetVelocity();
                 }
                 particleBuffersPerBucket[idx][b].SetData(particleData, 0, 0, count);
-                particleVelBuffersPerBucket[idx][b].SetData(particleVelData, 0, 0, count);
+                //particleVelBuffersPerBucket[idx][b].SetData(particleVelData, 0, 0, count);
+            }
+        }*/
+        void UpdateRegionParticleBufferBuckets(int idx)
+        {
+            var region = waveParticleRegions[idx];
+
+            // 可选：如果你想并行所有 bucket，把所有 handle 记录下来，最后 Combine/Complete 一次
+            NativeArray<JobHandle> handles = new NativeArray<JobHandle>(N_omega, Allocator.Temp); // *2 是给速度的，可不需要就减掉
+            int hCount = 0;
+
+            for (int b = 0; b < N_omega; b++)
+            {
+                var arr = region.buckets[b].AsArray();
+                int count = arr.Length;
+                bucketCounts[b] = count;
+                if (count == 0) continue;
+
+                // ---- 写入粒子（Vector4）----
+                // 直接得到指向 GPU buffer 的 NativeArray<T> 视图（零拷贝）
+                var gpuSpanV4 = particleBuffersPerBucket[idx][b].BeginWrite<Vector4>(0, count);
+
+                // 调度 Burst Job 把 WaveParticle -> Vector4
+                var packJob = new PackParticlesToV4Job
+                {
+                    src = arr,
+                    dst = gpuSpanV4
+                }.Schedule(count, 128);
+
+                handles[hCount++] = packJob;
+
+                // ----（可选）写入速度（Vector2）----
+                // 如果后续要用 SplatVelocityBucket，这里同样走 BeginWrite
+                // var gpuSpanV2 = particleVelBuffersPerBucket[idx][b].BeginWrite<Vector2>(0, count);
+                // var velJob = new PackVelocitiesToV2Job { src = arr, dst = gpuSpanV2 }.Schedule(count, 128);
+                // handles[hCount++] = velJob;
+
+                // 注意：EndWrite 需要在对应写入 job 完成后再调，
+                // 这里先把 job 句柄存起来，后面统一 Complete 再 EndWrite
+            }
+
+            // ---- 统一等待所有打包 job 完成 ----
+            if (hCount > 0)
+            {
+                var combined = JobHandle.CombineDependencies(handles.GetSubArray(0, hCount));
+                combined.Complete();
+            }
+            handles.Dispose();
+
+            // ---- 统一 EndWrite（顺序无所谓，但必须保证对应 job 已完成）----
+            for (int b = 0; b < N_omega; b++)
+            {
+                int count = bucketCounts[b];
+                if (count == 0) continue;
+
+                particleBuffersPerBucket[idx][b].EndWrite<Vector4>(count);
+
+                // 如果上面也写了速度，这里对应 EndWrite
+                // particleVelBuffersPerBucket[idx][b].EndWrite<Vector2>(count);
             }
         }
+
+        [BurstCompile]
+        struct DisposeNativeArrayJob<T> : IJob where T : struct
+        {
+            public NativeArray<T> arr;
+            public void Execute() => arr.Dispose();
+        }
+
 
         static void ClearArraySlices(RenderTexture arrayRT, int sliceCount)
         {
@@ -630,10 +863,26 @@ namespace Assets.Scripts
         }
 
 
-        private void OnDestroy()
+        void OnDestroy()
         {
+            if (particleBuffersPerBucket != null)
+            {
+                for (int r = 0; r < particleBuffersPerBucket.Length; r++)
+                    if (particleBuffersPerBucket[r] != null)
+                        for (int b = 0; b < particleBuffersPerBucket[r].Length; b++)
+                            particleBuffersPerBucket[r][b]?.Dispose();
+            }
 
+            if (particleVelBuffersPerBucket != null)
+            {
+                for (int r = 0; r < particleVelBuffersPerBucket.Length; r++)
+                    if (particleVelBuffersPerBucket[r] != null)
+                        for (int b = 0; b < particleVelBuffersPerBucket[r].Length; b++)
+                            particleVelBuffersPerBucket[r][b]?.Dispose();
+            }
+            radiiBuf?.Dispose();
         }
+
 
 
         /// <summary>
@@ -729,7 +978,7 @@ namespace Assets.Scripts
                 float signY = (vy >= 0f) ? -1f : 1f;
 
                 // 系数可按项目调（竖直项）
-                const float K_ampY = 2.0f;
+                const float K_ampY = 1f;
                 float A_total_Y = K_ampY * signY * S_inwater * cY * dt / (1.4535f * bucketRadii[bucketY] * bucketRadii[bucketY]);
                 A_total_Y = Mathf.Clamp(A_total_Y, -5f, 5f);
                 //Debug.Log("S:" + S_inwater+ "cY:"+cY + "Total A_Y:" +A_total_Y+" Radius Y:"+bucketRadii[bucketY]);
@@ -813,7 +1062,7 @@ namespace Assets.Scripts
 
                 // 水平项总振幅（沿用你的体积-速度-时间缩放）
                 // 系数可按项目调（竖直项）
-                const float K_ampH = 0.5f;
+                const float K_ampH = 1f;
                 float A_total_H = K_ampH * S_inwater * cH * dt / (1.4535f * bucketRadii[bucketH] * bucketRadii[bucketH]);
                 A_total_H = Mathf.Clamp(A_total_H, -5f, 5f);
 

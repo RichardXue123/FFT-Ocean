@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using Unity.Collections;
+using Unity.Mathematics;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
@@ -318,19 +319,19 @@ namespace Assets.Scripts
                     for (int itheta = 0; itheta < _Ntheta; itheta++)
                     {
                         float theta = _deltaTheta * itheta;
-                        Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
+                        float2 dir = new float2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                         float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
                         float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaTheta);
                         if (amplitude < 1e-5f) { continue; }
-                        Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize);
+                        Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize, dir);
 
                         var particle = new WaveParticle
                         {
                             position = pos,
-                            direction = dir.normalized,
+                            direction = math.normalize(dir),
                             height = amplitude,
                             omega = omega,
                             k = k,
@@ -450,6 +451,54 @@ namespace Assets.Scripts
             }
             return center;
         }
+
+        // 只在会“进入区域”的边上采样：根据 dir 决定候选边
+        Vector2 SamplePositionOnRegionEdge(Vector2 center, Vector2 size, float2 dir)
+        {
+            dir = math.normalize(dir);
+            float halfX = size.x * 0.5f;
+            float halfY = size.y * 0.5f;
+
+            // 预先生成沿边方向的随机坐标，避免在不同分支重复声明
+            float randAlongX = Random.Range(-halfX, halfX);
+            float randAlongY = Random.Range(-halfY, halfY);
+
+            // 轻微向内推进，避免落在边线上被误判越界
+            float epsX = 1e-4f * size.x;
+            float epsY = 1e-4f * size.y;
+
+            // 根据传播方向，给可进入的边分配权重（近似通量权重）
+            float ax = Mathf.Abs(dir.x);
+            float ay = Mathf.Abs(dir.y);
+            float wLeft = (dir.x > 1e-6f) ? ax : 0f;
+            float wRight = (dir.x < -1e-6f) ? ax : 0f;
+            float wBottom = (dir.y > 1e-6f) ? ay : 0f;
+            float wTop = (dir.y < -1e-6f) ? ay : 0f;
+            float wSum = wLeft + wRight + wBottom + wTop;
+
+            // 退化情形：方向几乎为零，默认从左边进入
+            if (wSum <= 1e-6f)
+                return center + new Vector2(-halfX + epsX, randAlongY);
+
+            // 按权重选边
+            float r = Random.value * wSum;
+
+            if (r < wLeft)                            // Left（内法线 +X）
+                return center + new Vector2(-halfX + epsX, randAlongY);
+            r -= wLeft;
+
+            if (r < wRight)                           // Right（内法线 -X）
+                return center + new Vector2(halfX - epsX, randAlongY);
+            r -= wRight;
+
+            if (r < wBottom)                          // Bottom（内法线 +Y）
+                return center + new Vector2(randAlongX, -halfY + epsY);
+
+            // Top（内法线 -Y）
+            return center + new Vector2(randAlongX, halfY - epsY);
+        }
+
+
 
         /// <summary>
         /// 从长方形区域内部采样一个粒子位置，用于实现边界粒子生成。

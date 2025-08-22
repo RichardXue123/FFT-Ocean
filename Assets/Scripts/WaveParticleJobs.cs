@@ -2,6 +2,7 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Assets.Scripts
@@ -16,44 +17,81 @@ namespace Assets.Scripts
         public float planeSize;
         public float oceanSize;
 
-        public Vector2 regionCenter;  // 用于Contains判断
-        public Vector2 regionHalf;    // = region.size * 0.5f
+        public float2 regionCenter;  // 用于Contains判断
+        public float2 regionHalf;    // = region.size * 0.5f
 
         public void Execute(int index)
         {
             var p = particles[index];
+            float maxMove = p.speed * deltaTime + p.radius;  // 没有 speed 就用一个保守上界
+            float2 d0 = math.abs(p.position - regionCenter) - regionHalf;
+            d0 = math.max(d0, 0);              // 只要超出的一半
+            if (math.any(d0 > maxMove))
+                return; // 直接丢掉，无需 Update
             // 位置更新
             p.Update(deltaTime, planeSize, oceanSize);
 
             // 越界剔除（含半径扩展）
-            float dx = Mathf.Abs(p.position.x - regionCenter.x);
-            float dy = Mathf.Abs(p.position.y - regionCenter.y);
-            bool inside = (dx <= regionHalf.x + p.radius) && (dy <= regionHalf.y + p.radius);
-
-            if (inside)
-            {
-                // 预先保证了容量，因此这里用 AddNoResize（线程安全且无锁扩容）
-                survivors.AddNoResize(p);
-            }
+            float2 d = math.abs(p.position - regionCenter);
+            float2 ext = regionHalf + new float2(p.radius, p.radius);
+            if (math.all(d <= ext))
+                survivors.AddNoResize(p); // 预先保证容量
         }
     }
-    [BurstCompile]
-    public struct WaveParticleUpdateJob : IJobParallelFor
+    [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low, CompileSynchronously = true)]
+    public struct UpdateMarkAliveJob : IJobParallelFor
     {
-        public NativeArray<WaveParticle> particles;
-        public float deltaTime;
-        public float planeSize;
-        public float oceanSize;
+        [ReadOnly] public NativeArray<WaveParticle> src;  // 读旧
+        public NativeArray<WaveParticle> dst;              // 写新（就地或到 scratch 缓冲）
+        public NativeArray<byte> alive;                    // 0/1 生存标记（避免并发写 NativeList）
 
-        public void Execute(int index)
+        public float deltaTime;
+        public float planeScale;       // = planeSize / oceanSize（预先计算，减少每粒子除法）
+        public float2 regionCenter;
+        public float2 regionHalf;
+
+        public void Execute(int i)
         {
-            //为什么需要取出再拷回？？
-            var p = particles[index];
-            p.Update(deltaTime, planeSize, oceanSize);
-            particles[index] = p;
+            var p = src[i];
+
+            // 早期粗剔除：如果离区域包围盒很远，直接淘汰
+            float maxMove = p.speed * deltaTime + p.radius;
+            float2 d0 = math.abs(p.position - regionCenter) - regionHalf;
+            d0 = math.max(d0, 0);
+            if (math.any(d0 > maxMove))
+            {
+                alive[i] = 0;
+                return;
+            }
+
+            // 位置更新（合并比例，减少指令/除法）
+            p.position += p.direction * (p.speed * deltaTime * planeScale);
+
+            // 精确包含测试（带半径）
+            float2 d = math.abs(p.position - regionCenter);
+            float2 ext = regionHalf + new float2(p.radius, p.radius);
+            bool inside = math.all(d <= ext);
+
+            alive[i] = (byte)(inside ? 1 : 0);
+            dst[i] = p;     // 把更新后的粒子写回（下一步再线性压缩）
         }
     }
+    [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low, CompileSynchronously = true)]
+    public struct CompactAliveJob : IJob
+    {
+        [ReadOnly] public NativeArray<WaveParticle> updated;  // 上一 Job 写回的数组
+        [ReadOnly] public NativeArray<byte> alive;            // 0/1 标记
+        public NativeList<WaveParticle> outList;              // 已提前 Ensure 容量
 
+        public void Execute()
+        {
+            outList.Clear(); // 保证长度为0，但不改变容量
+                             // 线性压缩，完全顺序写，极省时
+            for (int i = 0; i < updated.Length; i++)
+                if (alive[i] != 0)
+                    outList.AddNoResize(updated[i]);
+        }
+    }
     [BurstCompile]
     public struct WaveParticleBilinearSplatJob : IJobParallelFor
     {
@@ -106,5 +144,34 @@ namespace Assets.Scripts
             }
         }
     }
+
+    [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low, CompileSynchronously = true)]
+    public struct PackParticlesToV4Job : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<Assets.Scripts.WaveParticle> src; // bucket 内的粒子
+        [WriteOnly] public NativeArray<Vector4> dst;                     // 指向 GPU Buffer 的 BeginWrite 区域
+
+        public void Execute(int i)
+        {
+            var p = src[i];
+            // 直接展开，避免 ToVector4() 的函数调用开销
+            dst[i] = new Vector4(p.position.x, p.position.y, p.height, p.radius);
+        }
+    }
+
+    //（可选）同时打包速度到另一个 GPU Buffer
+    [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low, CompileSynchronously = true)]
+    public struct PackVelocitiesToV2Job : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<Assets.Scripts.WaveParticle> src;
+        [WriteOnly] public NativeArray<Vector2> dst;
+
+        public void Execute(int i)
+        {
+            var p = src[i];
+            dst[i] = new Vector2(p.direction.x * p.speed, p.direction.y * p.speed);
+        }
+    }
+
 
 }
