@@ -83,9 +83,9 @@ namespace Assets.Scripts
         RenderTexture _slicePreviewRT;
 
         //public int[] debugOut = new int[4];
-        public UnityEngine.UI.RawImage heightMapDisplay;
+        /*public UnityEngine.UI.RawImage heightMapDisplay;
         public UnityEngine.UI.RawImage normalMapDisplay;
-        public UnityEngine.UI.RawImage displacementMapDisplay;
+        public UnityEngine.UI.RawImage displacementMapDisplay;*/
 
         private Texture2D[] heightMapT2D;
         private Texture2D[] normalMapT2D;
@@ -275,11 +275,11 @@ namespace Assets.Scripts
             oceanMaterial.SetFloat("_BlendRange", blendRange);
             oceanMaterial.SetFloat("_BlendStrength", blendStrength);
 
-            var sw = Stopwatch.StartNew();      // 等同于 new Stopwatch(); sw.Start();
+            //var sw = Stopwatch.StartNew();      // 等同于 new Stopwatch(); sw.Start();
 
             for (int r = 0; r < waveParticleRegions.Count; r++)
             {
-                sw.Restart();
+                //sw.Restart();
                 var region = waveParticleRegions[r];
 
                 // 0) 按需生成边界粒子（你原来的逻辑）
@@ -294,32 +294,16 @@ namespace Assets.Scripts
                     AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
                 }
 
-                sw.Stop();
-                //Debug.Log($"Step 0 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 1) 更新粒子（分桶并行） 2) 剔除越界粒子
                 UpdateRegionParticlesBuckets(r, dt);
 
-                sw.Stop();
-                //Debug.Log($"Step 1,2 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 3) 统计并上传每桶粒子（只传有效段）
                 UpdateRegionParticleBufferBuckets(r);
-
-                sw.Stop();
-                //Debug.Log($"Step 3 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // 4) 清零该 region 的 RInt array
                 ClearArraySlices(heightSlicesInt[r], N_omega);
                 //ClearArraySlices(heightSlicesTmp[r], N_omega);      // Horizontal 前清零 tmp
                 //ClearArraySlices(heightSlicesFloat[r], N_omega);    // Vertical 前清零目标
-
-                sw.Stop();
-                //Debug.Log($"Step 4 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // 5) Splat（每桶一次，写入对应 slice）
                 int kS = SplatBucketsCS.FindKernel("SplatBucket");
@@ -354,10 +338,6 @@ namespace Assets.Scripts
                     particleCnt += count;
                 }
 
-                sw.Stop();
-                //Debug.Log($"Step 5 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 6) Int2Float（array 版本）
                 int kI2F = Int2FloatArrayCS.FindKernel("IntToFloatArray");
                 Int2FloatArrayCS.SetTexture(kI2F, "Source", heightSlicesInt[r]);
@@ -366,10 +346,6 @@ namespace Assets.Scripts
                 Int2FloatArrayCS.SetFloat("Scale", 1000f);
                 Int2FloatArrayCS.SetInt("SliceCount", N_omega);
                 Int2FloatArrayCS.Dispatch(kI2F, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-
-                sw.Stop();
-                //Debug.Log($"Step 6 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
 
                 // int2float for vel
                 //int kV2F = Int2FloatArrayCS.FindKernel("IntToFloatArrayVelocity");
@@ -409,10 +385,6 @@ namespace Assets.Scripts
                 // Vertical 一次跑完所有 slices
                 SeparableFilterCS.Dispatch(kV, gx, gy, N_omega);
 
-                sw.Stop();
-                //Debug.Log($"Step 7 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 8) 合并 slices → heightMap[r]（float）
                 int kR = ReduceSlicesCS.FindKernel("SumSlices");
                 ReduceSlicesCS.SetTexture(kR, "_HeightMapArray", heightSlicesFloat[r]);
@@ -420,13 +392,6 @@ namespace Assets.Scripts
                 ReduceSlicesCS.SetInts("_TexSize", resolution, resolution);
                 ReduceSlicesCS.SetInt("_SliceCount", N_omega);
                 ReduceSlicesCS.Dispatch(kR, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
-
-                sw.Stop();
-                //Debug.Log($"Step 8 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
-                // debug 高度图
-                //EnqueueAverageHeightLogCPU(r);
 
                 // 9) 法线
                 int kN = Height2NormalComputeShader.FindKernel("CSMain");
@@ -436,26 +401,14 @@ namespace Assets.Scripts
                 Height2NormalComputeShader.SetVector("RegionSize", region.size);   // ← 新增
                 Height2NormalComputeShader.Dispatch(kN, Mathf.CeilToInt(resolution / 8f), Mathf.CeilToInt(resolution / 8f), 1);
 
-                sw.Stop();
-                //Debug.Log($"Step 9 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 10) 传材质
                 oceanMaterial.SetTexture($"_ParticleHeightMap{r}", heightMap[r]);
                 oceanMaterial.SetTexture($"_ParticleNormalMap{r}", normalMap[r]);
                 oceanMaterial.SetVector($"_RegionCenter{r}", region.center);
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
-                sw.Stop();
-                //Debug.Log($"Step 10 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
-
                 // 11) 更新texture2d for interact
-                SyncRegionTexturesToCPU(r);
-
-                sw.Stop();
-                //Debug.Log($"Step 11 耗时: {sw.Elapsed.TotalMilliseconds:F3} ms");
-                sw.Restart();
+                //SyncRegionTexturesToCPU(r);
 
             }
 
@@ -978,7 +931,7 @@ namespace Assets.Scripts
                 float signY = (vy >= 0f) ? -1f : 1f;
 
                 // 系数可按项目调（竖直项）
-                const float K_ampY = 1f;
+                const float K_ampY = 2f;
                 float A_total_Y = K_ampY * signY * S_inwater * cY * dt / (1.4535f * bucketRadii[bucketY] * bucketRadii[bucketY]);
                 A_total_Y = Mathf.Clamp(A_total_Y, -5f, 5f);
                 //Debug.Log("S:" + S_inwater+ "cY:"+cY + "Total A_Y:" +A_total_Y+" Radius Y:"+bucketRadii[bucketY]);

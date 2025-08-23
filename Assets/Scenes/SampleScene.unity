@@ -221,7 +221,7 @@ MonoBehaviour:
     size: {x: 100, y: 100}
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
-  MAX_PARTICLES: 700000
+  MAX_PARTICLES: 1000000
   N_omega: 8
   N_theta: 16
   bucketCounts: 
@@ -1401,7 +1401,7 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -1438,7 +1438,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1336822120}
   serializedVersion: 4
-  m_Mass: 10000
+  m_Mass: 20000
   m_Drag: 0.5
   m_AngularDrag: 0.6
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -1490,7 +1490,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 616a7803c32862640b746857d9ad6df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveAccel: 5
+  maxSpeed: 20
+  maxReverseSpeed: 15
+  accel: 8
+  brake: 10
+  maxTurnRateDeg: 90
+  turnGain: 100000
+  lateralGrip: 5
+  upMaxSpeed: 5
+  upAccel: 12
+  inputSmooth: 0.12
 --- !u!114 &1336822124
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1507,8 +1516,8 @@ MonoBehaviour:
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000
-  density: 1000
-  DirSampleCount: 16
+  density: 2000
+  DirSampleCount: 32
 --- !u!1 &1707354933
 GameObject:
   m_ObjectHideFlags: 0
@@ -1787,7 +1796,7 @@ Rigidbody:
   m_UseGravity: 1
   m_IsKinematic: 0
   m_Interpolate: 0
-  m_Constraints: 0
+  m_Constraints: 10
   m_CollisionDetection: 0
 --- !u!114 &2019759775
 MonoBehaviour:
@@ -1801,7 +1810,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 616a7803c32862640b746857d9ad6df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveAccel: 10
+  maxSpeed: 10
+  maxReverseSpeed: 5
+  accel: 4
+  brake: 6
+  maxTurnRateDeg: 90
+  turnGain: 800
+  lateralGrip: 3
+  upMaxSpeed: 50
+  upAccel: 20
+  inputSmooth: 0.12
 --- !u!114 &2019759776
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1819,7 +1837,7 @@ MonoBehaviour:
   regionIndex: 0
   sampleCount: 1000
   density: 1000
-  DirSampleCount: 16
+  DirSampleCount: 32
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
