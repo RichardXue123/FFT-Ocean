@@ -33,7 +33,7 @@
         _BlendRange("Blend Range", Range(0,1)) = 0.2
         _BlendStrength("Blend Strength", Range(0,1)) = 0.5
 
-
+        _UseFFTOnly("Use FFT Only", Float) = 0
 
         [Header(Cascade 0)]
         [HideInInspector]_Displacement_c0("Displacement C0", 2D) = "black" {}
@@ -79,6 +79,8 @@
 
         float _BlendRange;
         float _BlendStrength;
+
+        float _UseFFTOnly; // 0 = 正常显示（粒子 + FFT 混合），1 = 强制用 FFT
 
 
         // Utility function: 判断点是否在某个region
@@ -150,6 +152,16 @@
             float finalHeight;
             float blend = 0;
             float fftHeight = tex2Dlod(_Displacement_c0, float4(worldPosXZ / LengthScale0, 0, 0)).y;
+
+            if (_UseFFTOnly > 0.5)
+            {
+                displacement.y = fftHeight;
+                // 可选：这行保持你原来的 SSS 相关数据
+                o.lodScales = float4(0, 0, 1, max(displacement.y - displacement.y * 0.8 - _SSSBase, 0) / _SSSScale);
+                v.vertex.xyz += mul(unity_WorldToObject, displacement);
+                return;
+            }
+
             float regionHeight = 0;
             if (regionIdx == 0) {
                 regionHeight = tex2Dlod(_ParticleHeightMap0, float4(regionUV, 0, 0)).r * _ParticleHeightScale;
@@ -200,6 +212,29 @@
         void surf(Input IN, inout SurfaceOutputStandard o)
         {
             float2 worldPosXZ = IN.worldUV;
+            if (_UseFFTOnly > 0.5)
+            {
+                float4 derivatives = tex2D(_Derivatives_c0, worldPosXZ / LengthScale0);
+                float2 slope = float2(derivatives.x / (1 + derivatives.z), derivatives.y / (1 + derivatives.w));
+                float3 fftNormal = normalize(float3(-slope.x, 1, -slope.y));
+
+                o.Normal = WorldToTangentNormalVector(IN, fftNormal);
+
+                // 下面保持你原有的 PBR/Fresnel/SSS 等计算（不需要区域相关）
+                float3 viewDir = normalize(IN.viewVector);
+                float3 H = normalize(-fftNormal + _WorldSpaceLightPos0);
+                float ViewDotH = pow5(saturate(dot(viewDir, -H))) * 30 * _SSSStrength;
+
+                float fresnel = pow5(saturate(1 - dot(fftNormal, viewDir)));
+                float distanceGloss = lerp(1 - _Roughness, _MaxGloss, 1 / (1 + length(IN.viewVector) * _RoughnessScale));
+                o.Smoothness = distanceGloss;
+                o.Metallic = 0;
+
+                float3 color = _Color;
+                o.Albedo = color;
+                o.Emission = color * (1 - fresnel);
+                return; // 直接结束 surf
+            }
             float2 regionUV;
             int regionIdx = GetRegionIndex(worldPosXZ, regionUV);
 

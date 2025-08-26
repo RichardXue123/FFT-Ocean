@@ -68,6 +68,7 @@ namespace Assets.Scripts
         [SerializeField] public float blendRange = 0.2f;
         [SerializeField] public float blendStrength = 0.5f;
         [SerializeField] public float oceanSize = 100f;
+        [SerializeField] public float useFFTOnly = 0f;
         //[SerializeField] public NativeArray<float>[] heightMaps;
 
         [SerializeField] Material oceanMaterial;
@@ -274,6 +275,7 @@ namespace Assets.Scripts
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
             oceanMaterial.SetFloat("_BlendRange", blendRange);
             oceanMaterial.SetFloat("_BlendStrength", blendStrength);
+            oceanMaterial.SetFloat("_UseFFTOnly", useFFTOnly);
 
             //var sw = Stopwatch.StartNew();      // 等同于 new Stopwatch(); sw.Start();
 
