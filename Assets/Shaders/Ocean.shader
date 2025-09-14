@@ -36,9 +36,9 @@
         _UseFFTOnly("Use FFT Only", Float) = 0
 
         [Header(Cascade 0)]
-        [HideInInspector]_Displacement_c0("Displacement C0", 2D) = "black" {}
-        [HideInInspector]_Derivatives_c0("Derivatives C0", 2D) = "black" {}
-        [HideInInspector]_Turbulence_c0("Turbulence C0", 2D) = "white" {}
+        _Displacement_c0("Displacement C0", 2D) = "black" {}
+        _Derivatives_c0("Derivatives C0", 2D) = "black" {}
+        _Turbulence_c0("Turbulence C0", 2D) = "white" {}
     }
         SubShader
     {

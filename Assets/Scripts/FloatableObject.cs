@@ -166,7 +166,7 @@ namespace Assets.Scripts
             return Mathf.Abs((float)vol); // 体积取绝对值
         }
 
-        void FixedUpdate()
+        void Update()
         {
             if (water == null || localSamplePoints.Count == 0 || sampleCount <= 0) return;
 

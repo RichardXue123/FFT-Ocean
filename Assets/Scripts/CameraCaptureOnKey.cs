@@ -18,17 +18,23 @@ public class CameraCaptureOnKey : MonoBehaviour
 
     public enum FileType { PNG, JPG, EXR }
     public FileType fileType = FileType.PNG;
-    [Range(1, 100)] public int jpgQuality = 95;
+    [Range(1, 100)] public int jpgQuality = 100;
+
+    [Header("Burst / Interval")]
+    [Min(1)] public int captureCount = 1;       // 总共拍几张
+    [Min(0f)] public float captureInterval = 0; // 每张间隔秒数（0 = 连续拍）
 
     // --- internal ---
     private Camera cam;
 
     // SRP 一帧延迟抓取所需的临时状态
     private RenderTexture _pendingRT;
-    private bool _pendingTransparent;
     private CameraClearFlags _oldFlags;
     private Color _oldBG;
     private RenderTexture _oldTarget;
+    private string _pendingPath;
+
+    private bool _isBurstRunning = false; // 防止重复触发
 
     void Awake()
     {
@@ -48,26 +54,56 @@ public class CameraCaptureOnKey : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(hotkey))
+        if (Input.GetKeyDown(hotkey) && !_isBurstRunning)
         {
-            if (includeUI)
-            {
-                // 最终屏幕（含 Overlay UI）
-                StartCoroutine(CaptureGameViewCoroutine());
-            }
-            else
-            {
-                // 只抓本相机视角
-                if (GraphicsSettings.currentRenderPipeline == null)
-                    CaptureBuiltinImmediate();
-                else
-                    CaptureSRPNextFrame();
-            }
+            StartCoroutine(BurstCaptureCoroutine());
         }
     }
 
+    // ---------- 连拍主流程 ----------
+    System.Collections.IEnumerator BurstCaptureCoroutine()
+    {
+        _isBurstRunning = true;
+
+        // 同一轮连拍使用同一个时间戳基准 + 递增序号，避免同名覆盖
+        string tsBase = System.DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+
+        for (int i = 0; i < Mathf.Max(1, captureCount); i++)
+        {
+            string path = ComposePath(tsBase, i);
+
+            if (includeUI)
+            {
+                // 抓取最终屏幕（含 Overlay UI）
+                yield return CaptureGameViewCoroutine(path);  // 自带跨帧
+            }
+            else
+            {
+                if (GraphicsSettings.currentRenderPipeline == null)
+                {
+                    // Built-in：立即渲染并保存，但随后至少跨一帧，避免同帧多张
+                    CaptureBuiltinImmediate(path);
+                    if (captureInterval <= 0f)
+                        yield return null; // 下一张放到下一帧
+                }
+                else
+                {
+                    // SRP：下一帧在 endCameraRendering 回调里保存
+                    CaptureSRPNextFrame(path);
+                    while (_pendingRT != null) yield return null; // 等保存完毕
+                }
+            }
+
+            // 间隔（最后一张不等）
+            if (i < captureCount - 1 && captureInterval > 0f)
+                yield return new WaitForSeconds(captureInterval);
+        }
+
+        _isBurstRunning = false;
+    }
+
     // ---------- Built-in 渲染管线：立即渲染/读回 ----------
-    void CaptureBuiltinImmediate()
+    void CaptureBuiltinImmediate(string path)
     {
         var desc = MakeRTDesc();
         var rt = RenderTexture.GetTemporary(desc);
@@ -90,9 +126,10 @@ public class CameraCaptureOnKey : MonoBehaviour
             cam.targetTexture = rt;
             cam.Render(); // Built-in 可用
 
-            SaveRTToFile(rt);
-
-            LogSavedPath();
+            SaveRTToFile(rt, path);
+#if UNITY_EDITOR
+            Debug.Log($"Saved capture to: {path}");
+#endif
         }
         finally
         {
@@ -105,18 +142,18 @@ public class CameraCaptureOnKey : MonoBehaviour
     }
 
     // ---------- SRP (URP/HDRP)：下一帧在 endCameraRendering 回调里读回 ----------
-    void CaptureSRPNextFrame()
+    void CaptureSRPNextFrame(string path)
     {
         if (_pendingRT != null) return; // 避免重复占用
 
         _pendingRT = RenderTexture.GetTemporary(MakeRTDesc());
-        _pendingTransparent = transparentBackground;
+        _pendingPath = path;
 
         _oldFlags = cam.clearFlags;
         _oldBG = cam.backgroundColor;
         _oldTarget = cam.targetTexture;
 
-        if (_pendingTransparent)
+        if (transparentBackground)
         {
             cam.clearFlags = CameraClearFlags.SolidColor;
             var c = cam.backgroundColor; c.a = 0f;
@@ -134,12 +171,15 @@ public class CameraCaptureOnKey : MonoBehaviour
 
         try
         {
-            SaveRTToFile(_pendingRT);
-            LogSavedPath();
+            SaveRTToFile(_pendingRT, _pendingPath);
+#if UNITY_EDITOR
+            Debug.Log($"Saved capture to: {_pendingPath}");
+#endif
         }
         finally
         {
             CleanupPending();
+            _pendingPath = null;
         }
     }
 
@@ -157,7 +197,7 @@ public class CameraCaptureOnKey : MonoBehaviour
     }
 
     // ---------- 抓屏（包含 Overlay UI） ----------
-    System.Collections.IEnumerator CaptureGameViewCoroutine()
+    System.Collections.IEnumerator CaptureGameViewCoroutine(string path)
     {
         // 等到当帧所有相机与 UI 都画完
         yield return new WaitForEndOfFrame();
@@ -165,16 +205,17 @@ public class CameraCaptureOnKey : MonoBehaviour
         // 直接获取屏幕纹理（分辨率为当前 GameView/屏幕分辨率）
         var tex = ScreenCapture.CaptureScreenshotAsTexture();
 
-        // 如需强制输出为设定分辨率，可在这里做一次缩放（略）
-
         var bytes = Encode(tex);
-        File.WriteAllBytes(ComposePath(), bytes);
-        LogSavedPath();
+        EnsureDirExists(path);
+        File.WriteAllBytes(path, bytes);
+#if UNITY_EDITOR
+        Debug.Log($"Saved capture to: {path}");
+#endif
         Object.Destroy(tex);
     }
 
     // ---------- 读取与保存 ----------
-    void SaveRTToFile(RenderTexture rt)
+    void SaveRTToFile(RenderTexture rt, string path)
     {
         var prev = RenderTexture.active;
         RenderTexture.active = rt;
@@ -188,7 +229,8 @@ public class CameraCaptureOnKey : MonoBehaviour
         tex.Apply(false, false);
 
         var bytes = Encode(tex);
-        File.WriteAllBytes(ComposePath(), bytes);
+        EnsureDirExists(path);
+        File.WriteAllBytes(path, bytes);
 
         Object.Destroy(tex);
         RenderTexture.active = prev;
@@ -215,19 +257,20 @@ public class CameraCaptureOnKey : MonoBehaviour
         return desc;
     }
 
-    string ComposePath()
+    // 生成唯一文件名：同一轮连拍用同一时间戳 + 序号
+    string ComposePath(string tsBase, int index)
     {
         string dir = "C:\\Users\\27487\\Pictures\\paper\\results\\Captured";
-        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-        string ts = System.DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
         string ext = fileType == FileType.JPG ? "jpg" : (fileType == FileType.EXR ? "exr" : "png");
-        return Path.Combine(dir, $"cam_{name}_{ts}.{ext}");
+        string suffix = (captureCount > 1) ? $"_{index:D3}" : "";
+        string full = Path.Combine(dir, $"cam_{name}_{tsBase}{suffix}.{ext}");
+        return full;
     }
 
-    void LogSavedPath()
+    void EnsureDirExists(string fullPath)
     {
-#if UNITY_EDITOR
-        Debug.Log($"Saved capture to: {ComposePath()}");
-#endif
+        string dir = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
     }
 }

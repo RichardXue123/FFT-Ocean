@@ -410,7 +410,7 @@ namespace Assets.Scripts
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
                 // 11) 更新texture2d for interact
-                //SyncRegionTexturesToCPU(r);
+                SyncRegionTexturesToCPU(r);
 
             }
 

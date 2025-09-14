@@ -55,6 +55,7 @@ public class WavesGenerator : MonoBehaviour
         //cascade2.CalculateInitials(wavesSettings, lengthScale2, boundary2, 9999);
 
         Shader.SetGlobalFloat("LengthScale0", lengthScale0);
+        //Debug.Log(Shader.GetGlobalFloat("LengthScale0"));
         //Shader.SetGlobalFloat("LengthScale1", lengthScale1);
         //Shader.SetGlobalFloat("LengthScale2", lengthScale2);
     }

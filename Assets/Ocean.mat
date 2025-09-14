@@ -216,7 +216,7 @@ Material:
     - _RegionCount: 1
     - _Roughness: 0
     - _RoughnessScale: 0
-    - _SSSBase: -0.77
+    - _SSSBase: -5
     - _SSSHeight: 2.71
     - _SSSScale: 0.1
     - _SSSStrength: 0
@@ -227,7 +227,7 @@ Material:
     - _SpecularScale: 1
     - _SrcBlend: 1
     - _UVSec: 0
-    - _UseFFTOnly: 1
+    - _UseFFTOnly: 0
     - _ZWrite: 1
     m_Colors:
     - _BaseColor: {r: 0, g: 0.5, b: 1, a: 1}

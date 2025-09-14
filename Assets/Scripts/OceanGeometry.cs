@@ -58,10 +58,6 @@ public class OceanGeometry : MonoBehaviour
         //oceanMaterial.SetTexture("_Derivatives_c2", wavesGenerator.cascade2.Derivatives);
         //oceanMaterial.SetTexture("_Turbulence_c2", wavesGenerator.cascade2.Turbulence);
 
-
-        Material material = new Material(oceanMaterial);
-        material.EnableKeyword("CLOSE");
-
         //materials[1] = new Material(oceanMaterial);
         //materials[1].EnableKeyword("MID");
         //materials[1].DisableKeyword("CLOSE");

@@ -157,7 +157,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   wavesGenerator: {fileID: 77222649}
   viewer: {fileID: 963194228}
-  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  oceanMaterial: {fileID: 2100000, guid: ee19a8a6fa18ce94c8e82f9e84d559e7, type: 2}
   updateMaterialProperties: 0
   oceanLength: 500
   gridLength: 500
@@ -242,7 +242,7 @@ MonoBehaviour:
   blendStrength: 1
   oceanSize: 100
   useFFTOnly: 1
-  oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
+  oceanMaterial: {fileID: 2100000, guid: ee19a8a6fa18ce94c8e82f9e84d559e7, type: 2}
 --- !u!1 &232618948
 GameObject:
   m_ObjectHideFlags: 0
@@ -555,7 +555,7 @@ Transform:
   m_GameObject: {fileID: 705507993}
   serializedVersion: 2
   m_LocalRotation: {x: 0.08334624, y: -0.25785372, z: 0.022332553, w: 0.9623233}
-  m_LocalPosition: {x: 0, y: 3, z: 0}
+  m_LocalPosition: {x: 0, y: 10, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1030,14 +1030,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   hotkey: 112
-  width: 3840
-  height: 2160
+  width: 1920
+  height: 1080
   msaa: 1
   transparentBackground: 1
   includeUI: 0
   subfolder: Captures
   fileType: 0
-  jpgQuality: 95
+  jpgQuality: 100
+  captureCount: 8
+  captureInterval: 0.2
 --- !u!1 &1133885655
 GameObject:
   m_ObjectHideFlags: 0
@@ -1408,7 +1410,7 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       insertIndex: -1
-      addedObject: {fileID: 1336822122}
+      addedObject: {fileID: 1336822128}
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       insertIndex: -1
@@ -1455,27 +1457,6 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
---- !u!65 &1336822122
-BoxCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1336822120}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Size: {x: 0.90108347, y: 0.53392804, z: 2.25}
-  m_Center: {x: 0.05345756, y: -0.10658242, z: 0.32934704}
 --- !u!114 &1336822123
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1514,8 +1495,29 @@ MonoBehaviour:
   water: {fileID: 77222651}
   regionIndex: 0
   sampleCount: 1000
-  density: 2000
+  density: 1000
   DirSampleCount: 32
+--- !u!65 &1336822128
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336822120}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.90108347, y: 0.53392804, z: 2.25}
+  m_Center: {x: 0.05345756, y: -0.10658242, z: 0.32934704}
 --- !u!1 &1707354933
 GameObject:
   m_ObjectHideFlags: 0
@@ -1761,7 +1763,7 @@ Transform:
   m_GameObject: {fileID: 2019759768}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 5, z: 0}
+  m_LocalPosition: {x: 0, y: 10, z: 0}
   m_LocalScale: {x: 5, y: 5, z: 5}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1776,7 +1778,7 @@ Rigidbody:
   m_GameObject: {fileID: 2019759768}
   serializedVersion: 4
   m_Mass: 60000
-  m_Drag: 0.3
+  m_Drag: 0.1
   m_AngularDrag: 0.3
   m_CenterOfMass: {x: 0, y: 0, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
@@ -1815,7 +1817,7 @@ MonoBehaviour:
   lateralGrip: 3
   upMaxSpeed: 50
   upAccel: 20
-  inputSmooth: 0.12
+  inputSmooth: 0.1
 --- !u!114 &2019759776
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1833,7 +1835,7 @@ MonoBehaviour:
   regionIndex: 0
   sampleCount: 1000
   density: 1000
-  DirSampleCount: 32
+  DirSampleCount: 128
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
