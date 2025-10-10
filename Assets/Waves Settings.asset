@@ -13,11 +13,11 @@ MonoBehaviour:
   m_Name: Waves Settings
   m_EditorClassIdentifier: 
   g: 9.81
-  depth: 1000
+  depth: 100000
   lambda: 1
   local:
     scale: 1
-    windSpeed: {x: 3, y: 0}
+    windSpeed: {x: 5, y: 0}
     fetch: 10000
     spreadBlend: 1
     swell: 0

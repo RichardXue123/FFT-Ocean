@@ -7,7 +7,7 @@ using Random = UnityEngine.Random;
 namespace Assets.Scripts
 {
     /// <summary>
-    /// 将光谱参数（如 JONSWAP）转换为波粒子的工具类。
+    /// 将谱参数（如 JONSWAP）转换为波粒子的工具类。
     /// 可用于边界重建，实现与 FFT 模拟的耦合。
     /// </summary>
     public class SpectrumToParticlesConverter
@@ -25,6 +25,11 @@ namespace Assets.Scripts
         private float _fetch;        // 有效风区长度
         private Vector2 _windVec;    // 风矢量
         private float _omegaP;       // 峰值角频率
+
+
+        // 涌浪相关参数
+        public float Tp = 3.8f;     // 涌浪 峰值周期 Tp
+        public float Hs = 3.0f;     //涌浪 有义波高，默认3m
 
         private float _omegaMin;
         private float _omegaMax;
@@ -45,9 +50,13 @@ namespace Assets.Scripts
         // 小数累计
         public List<float> batchAccumulate = new List<float>();
 
-        /// <summary>
-        /// 预计算所有与频率/方向相关、可跨帧复用的量。
-        /// </summary>
+        static float[] p = {0.99999999999980993f, 676.5203681218851f, -1259.1392167224028f,
+            771.32342877765313f, -176.61502916214059f, 12.507343278686905f,
+            -0.13857109526572012f, 9.9843695780195716e-6f, 1.5056327351493116e-7f};
+
+            /// <summary>
+            /// 预计算所有与频率/方向相关、可跨帧复用的量。
+            /// </summary>
         public void Initialize(WavesSettings ws, int N_omega = 8, int N_theta = 8)
         {
             _ws = ws;
@@ -298,7 +307,7 @@ namespace Assets.Scripts
             var particles = new NativeList<WaveParticle>(allocator);
 
             // 本函数的 batchSize ~ ω^3 * deltaTime * regionSize.x
-            float regionFrameFactor = deltaTime * regionSize.x * 8f / (Mathf.PI * Mathf.PI * Mathf.PI * _g);
+            float regionFrameFactor = deltaTime * regionSize.x * 4f / (Mathf.PI * Mathf.PI * Mathf.PI * _g);
 
             for (int iw = 0; iw < _Nomega; iw++)
             {
@@ -428,6 +437,67 @@ namespace Assets.Scripts
 
             float domega_dk = 0.5f * Mathf.Sqrt(_g / k);
             return S_deep * D * domega_dk;
+        }
+
+
+        /// <summary>
+        /// 计算带方向和深度修正的 JONSWAPGlenn 频谱密度 S(k,dir) 涌浪Swell用
+        /// </summary>
+        /// <param name="k">波数大小</param>
+        /// <param name="dir">波数方向（单位向量）</param>
+        /// <param name="g">重力加速度（9.81）</param>
+        /// <param name="depth">水深</param>
+        public float JONSWAPGlennSpectrum(
+            float k,
+            Vector2 dir,
+            WavesSettings ws
+        )
+        {
+            // 转成角频率 ω = sqrt(g k)
+            float ω = Mathf.Sqrt(ws.g * k);
+            float f = ω / (2f * Mathf.PI);
+            float fp = 1 / Tp;
+            //float γ = 3.3f;
+            float γjg = 9.5f * Mathf.Pow(Hs, 0.34f) * fp;
+            float σ = (f <= fp) ? 0.07f : 0.09f;
+            //float ωp = 0.84f * g / Mathf.Max(U, 0.1f);
+            float cc = 1.15f + 0.1688f * γjg - 0.925f / (1.909f + γjg);
+            float c = (5f * Hs * Hs) / (16f * fp) * Mathf.Pow(cc, -1f);
+            float r = Mathf.Exp(-1 * (f - fp) * (f - fp) / (2 * σ * σ * fp * fp));
+            float Sjg = c * Mathf.Pow(f / fp, -5f) * Mathf.Exp(-5.0f / 4.0f * Mathf.Pow(f / fp, -4f)) * Mathf.Pow(γjg, r);
+            //return Sjg;
+
+            float μ = f > fp ? -2.5f : 5.0f;
+            float sw = 16.0f * Mathf.Pow(f / fp, μ);
+            float U = Mathf.Sqrt(ws.swell.windSpeed.x * ws.swell.windSpeed.x + ws.swell.windSpeed.y * ws.swell.windSpeed.y);
+            Vector2 swellDir = new Vector2(ws.swell.windSpeed.x / U, ws.swell.windSpeed.y / U);
+
+            //应用方向夹角修正
+            float θ = Mathf.Atan2(dir.y, dir.x) - Mathf.Atan2(swellDir.y, swellDir.x);
+            if (Mathf.Abs(θ) > Mathf.PI)
+            {
+                θ = 2 * Mathf.PI - Mathf.Abs(θ);
+            }
+            float DirSpectrum = MyGammaDouble(sw + 1) / (2 * Mathf.Sqrt(Mathf.PI) * MyGammaDouble(sw + 0.5f)) * Mathf.Pow(Mathf.Cos(θ / 2), 2 * sw);
+            //最后转换到sk
+            float Sk = Sjg * DirSpectrum / (4.0f * Mathf.PI) * Mathf.Sqrt(ws.g / k) / k;
+            return (float)Sk;
+        }
+
+        /// <summary>
+        /// 用来计算 Γ(z)（Gamma 函数）的近似值,实现了一个 Lanczos 近似
+        /// </summary>
+        private float MyGammaDouble(float z)
+        {
+            int g = 7;
+            if (z < 0.5)
+                return Mathf.PI / (Mathf.Sin(Mathf.PI * z) * MyGammaDouble(1 - z));
+            z -= 1;
+            float x = (float)p[0];
+            for (var i = 1; i < g + 2; i++)
+                x += (float)p[i] / (z + i);
+            float t = z + g + 0.5f;
+            return Mathf.Sqrt(2 * Mathf.PI) * (Mathf.Pow(t, z + 0.5f)) * Mathf.Exp(-t) * x;
         }
 
         // ====== 采样 ======
