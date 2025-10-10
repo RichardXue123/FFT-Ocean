@@ -157,7 +157,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   wavesGenerator: {fileID: 77222649}
   viewer: {fileID: 963194228}
-  oceanMaterial: {fileID: 2100000, guid: ee19a8a6fa18ce94c8e82f9e84d559e7, type: 2}
+  oceanMaterial: {fileID: 2100000, guid: 22156cefd2b9a5342867323a00e9de30, type: 2}
   updateMaterialProperties: 0
   oceanLength: 500
   gridLength: 500
@@ -241,8 +241,8 @@ MonoBehaviour:
   blendRange: 0.2
   blendStrength: 1
   oceanSize: 100
-  useFFTOnly: 1
-  oceanMaterial: {fileID: 2100000, guid: ee19a8a6fa18ce94c8e82f9e84d559e7, type: 2}
+  useFFTOnly: 0
+  oceanMaterial: {fileID: 2100000, guid: 22156cefd2b9a5342867323a00e9de30, type: 2}
 --- !u!1 &232618948
 GameObject:
   m_ObjectHideFlags: 0
