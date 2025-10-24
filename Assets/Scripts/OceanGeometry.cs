@@ -67,7 +67,7 @@ public class OceanGeometry : MonoBehaviour
         //DebugDispHeight();
 
         // ---- 打印FFT区域RMS（采样Displacement的G通道） ----
-        if (wavesGenerator != null && wavesGenerator.cascade0 != null && wavesGenerator.cascade0.Displacement != null)
+        /*if (wavesGenerator != null && wavesGenerator.cascade0 != null && wavesGenerator.cascade0.Displacement != null)
         {
             var dispRT = wavesGenerator.cascade0.Displacement;
             Texture2D tex = new Texture2D(dispRT.width, dispRT.height, TextureFormat.RGBAFloat, false);
@@ -77,7 +77,7 @@ public class OceanGeometry : MonoBehaviour
             RenderTexture.active = null;
             PhysicsVerify.CalcRMS(tex,true);
             Object.Destroy(tex);
-        }
+        }*/
     }
     public void DebugDispHeight() {
         var rt = wavesGenerator.cascade0.Displacement;

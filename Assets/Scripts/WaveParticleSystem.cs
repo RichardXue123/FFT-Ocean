@@ -406,10 +406,10 @@ namespace Assets.Scripts
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
                 // 11) 更新texture2d for interact
-                SyncRegionTexturesToCPU(r);
+                //SyncRegionTexturesToCPU(r);
 
                 // 12) debug 打印波粒子区域RMS
-                PhysicsVerify.CalcRMS(heightMapT2D[0],false);
+                //PhysicsVerify.CalcRMS(heightMapT2D[0],false);
 
             }
 
