@@ -234,9 +234,9 @@ namespace Assets.Scripts
 
             var particles = new NativeList<WaveParticle>(allocator);
 
-            // 注意：本函数的 batchSize ~ ω^4 * regionSize.x^2 （你原式）
+            // 注意：本函数的 batchSize ~ ω^4 * regionSize.x^2 
             // 仅剩与 regionSize 相关的因子在此处计算即可
-            float regionFactor = regionSize.x * regionSize.x * 8f / (Mathf.PI * Mathf.PI * Mathf.PI * _g * _g);
+            float regionFactor = regionSize.x * regionSize.x * 4f / (Mathf.PI * Mathf.PI * Mathf.PI * _g * _g);
 
             for (int iw = 0; iw < _Nomega; iw++)
             {
