@@ -107,9 +107,11 @@ namespace Assets.Scripts
 
                 float S_deep = S0 * TMA;
 
-                // 注意：你原 JONSWAP 返回里还乘了 domega_dk；我们这里做按 ω 的等能量分桶，
-                // 权重直接用 S_deep(ω) 即可（能量谱密度对 ω 积分）。
-                return Mathf.Max(0f, S_deep);
+                // ====== 关键：除以 ω³ 作为权重 ======
+                // 因为粒子数 ∝ ω³ × S(ω) × Δω，要让各桶粒子数相近，
+                // CDF 按 S(ω)/ω³ 加权，这样高频区域会分配更宽的桶（Δω大），少采样
+                float omega3 = ω * ω * ω;
+                return Mathf.Max(0f, S_deep / (omega3 + 1e-10f));
             }
 
             // 细网格上评估
