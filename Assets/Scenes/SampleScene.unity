@@ -222,8 +222,8 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
   MAX_PARTICLES: 2000000
-  N_omega: 16
-  N_theta: 16
+  N_omega: 8
+  N_theta: 8
   bucketCounts: 
   bucketRadii: []
   bucketOmega: []

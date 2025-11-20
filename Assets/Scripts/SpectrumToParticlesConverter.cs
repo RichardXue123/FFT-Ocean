@@ -47,6 +47,12 @@ namespace Assets.Scripts
         private float[] _omegaPow3;    // ω^3（用于 per-frame 公式）
         private float[] _omegaPow4;    // ω^4（用于全区域公式）
 
+        // 方向分桶相关
+        private float[] _thetas;       // θ[i] - 各桶的中心方向（相对风向）
+        private float[] _deltaThetas;  // Δθ[i] - 各桶的角度宽度
+        private float[] _thetaEdges;   // 方向桶边界
+        private float _windDirection;  // 风向角度（弧度）
+
         // 小数累计
         public List<float> batchAccumulate = new List<float>();
 
@@ -71,7 +77,9 @@ namespace Assets.Scripts
 
             _omegaMin = _omegaP * 0.5f;
             _omegaMax = _omegaP * 2.5f;
-            _deltaTheta = 2f * Mathf.PI / _Ntheta;
+            
+            // 计算风向
+            _windDirection = Mathf.Atan2(_windVec.y, _windVec.x);
 
             _omegas = new float[_Nomega];
             _ks = new float[_Nomega];
@@ -81,6 +89,11 @@ namespace Assets.Scripts
             _omegaPow4 = new float[_Nomega];
             _deltaOmegas = new float[_Nomega];
             _omegaEdges = new float[_Nomega + 1];
+
+            // 方向分桶数组
+            _thetas = new float[_Ntheta];
+            _deltaThetas = new float[_Ntheta];
+            _thetaEdges = new float[_Ntheta + 1];
 
             // ---------- 1) 预采样 S_deep(ω) 并做累计能量 ----------
             int M = 1024; // 细网格
@@ -212,6 +225,107 @@ namespace Assets.Scripts
                 _omegaPow4[iw] = _omegaPow3[iw] * ωc;
             }
 
+            // ---------- 4) 方向分桶：基于峰值频率的方向分布做等能量采样 ----------
+            int M_theta = 360; // 方向细网格（1度精度）
+            float dθ_uniform = 2f * Mathf.PI / M_theta;
+            
+            // 使用峰值频率的方向分布作为参考
+            float EvalDirectionWeight(float θ_rel)
+            {
+                // θ_rel 是相对风向的角度，范围 [-π, π]
+                float μ = 5f;  // 使用峰值频率处的 μ（ω = ωp）
+                float n = 16f; // ω/ωp = 1 时
+                
+                float cosHalf = Mathf.Cos(θ_rel / 2f);
+                if (cosHalf <= 0f) return 0f;
+                
+                float D = (n + 1f) / (2f * Mathf.PI) * Mathf.Pow(cosHalf, n);
+                return D;
+            }
+            
+            // 细网格上评估方向分布
+            float[] θgrid = new float[M_theta];
+            float[] dgrid = new float[M_theta];
+            for (int j = 0; j < M_theta; j++)
+            {
+                float θ_rel = -Mathf.PI + j * dθ_uniform;  // [-π, π]
+                θgrid[j] = θ_rel;
+                dgrid[j] = EvalDirectionWeight(θ_rel);
+            }
+            
+            // 梯形积分计算 CDF
+            float[] cdf_theta = new float[M_theta];
+            cdf_theta[0] = 0f;
+            for (int j = 1; j < M_theta; j++)
+            {
+                cdf_theta[j] = cdf_theta[j - 1] + 0.5f * (dgrid[j] + dgrid[j - 1]) * dθ_uniform;
+            }
+            float totalDir = cdf_theta[M_theta - 1];
+            if (totalDir <= 1e-20f) totalDir = 1e-20f;
+            
+            // 二分查找方向 CDF^-1
+            float FindThetaAtCdf(float target)
+            {
+                int lo = 0, hi = M_theta - 1;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi) >> 1;
+                    if (cdf_theta[mid] < target) lo = mid + 1; else hi = mid;
+                }
+                int i1 = Mathf.Clamp(lo - 1, 0, M_theta - 2);
+                int i2 = i1 + 1;
+                float t1 = cdf_theta[i1], t2 = cdf_theta[i2];
+                float w = (Mathf.Abs(t2 - t1) < 1e-12f) ? 0f : (target - t1) / (t2 - t1);
+                return Mathf.Lerp(θgrid[i1], θgrid[i2], Mathf.Clamp01(w));
+            }
+            
+            // 等分方向 CDF
+            _thetaEdges[0] = -Mathf.PI;
+            _thetaEdges[_Ntheta] = Mathf.PI;
+            
+            for (int i = 1; i < _Ntheta; i++)
+            {
+                float target = (totalDir * i) / _Ntheta;
+                _thetaEdges[i] = FindThetaAtCdf(target);
+            }
+            
+            // 计算各桶中心方向和宽度
+            for (int itheta = 0; itheta < _Ntheta; itheta++)
+            {
+                float a = _thetaEdges[itheta];
+                float b = _thetaEdges[itheta + 1];
+                
+                // 能量加权质心
+                int j0 = Mathf.Clamp(Mathf.FloorToInt((a + Mathf.PI) / dθ_uniform), 0, M_theta - 2);
+                int j1 = Mathf.Clamp(Mathf.CeilToInt((b + Mathf.PI) / dθ_uniform), 1, M_theta - 1);
+                
+                float num = 0f, den = 0f;
+                for (int j = j0 + 1; j <= j1; j++)
+                {
+                    float θL = θgrid[j - 1], θR = θgrid[j];
+                    float dL = dgrid[j - 1], dR = dgrid[j];
+                    
+                    float L = Mathf.Max(θL, a);
+                    float R = Mathf.Min(θR, b);
+                    if (R <= L) continue;
+                    
+                    float dL2 = Mathf.Lerp(dL, dR, (L - θL) / (θR - θL));
+                    float dR2 = Mathf.Lerp(dL, dR, (R - θL) / (θR - θL));
+                    float segDen = 0.5f * (dL2 + dR2) * (R - L);
+                    
+                    float mid = 0.5f * (L + R);
+                    float dMid = 0.5f * (dL2 + dR2);
+                    float segNum = mid * dMid * (R - L);
+                    
+                    den += segDen;
+                    num += segNum;
+                }
+                
+                float θc = (den > 1e-20f) ? (num / den) : 0.5f * (a + b);
+                _thetas[itheta] = θc;  // 相对风向的角度
+                _deltaThetas[itheta] = Mathf.Max(1e-6f, b - a);
+            }
+
             // 小数累加器重置
             batchAccumulate = new List<float>(new float[_Nomega]);
             _initialized = true;
@@ -258,13 +372,14 @@ namespace Assets.Scripts
                 {
                     for (int itheta = 0; itheta < _Ntheta; itheta++)
                     {
-                        float theta = _deltaTheta * itheta;
+                        // 使用预计算的方向（相对风向 + 风向角度）
+                        float theta = _windDirection + _thetas[itheta];
                         Vector2 dir = new Vector2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                         float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
-                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaTheta);
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaThetas[itheta]);
                         Vector2 pos = SamplePositionInRegion(regionCenter, regionSize);
 
                         var particle = new WaveParticle
@@ -329,13 +444,14 @@ namespace Assets.Scripts
                 {
                     for (int itheta = 0; itheta < _Ntheta; itheta++)
                     {
-                        float theta = _deltaTheta * itheta;
+                        // 使用预计算的方向（相对风向 + 风向角度）
+                        float theta = _windDirection + _thetas[itheta];
                         float2 dir = new float2(Mathf.Cos(theta), Mathf.Sin(theta));
 
                         float S = JONSWAPSpectrumCached(omega, dir);
                         if (float.IsNaN(S) || float.IsInfinity(S) || S <= 0) continue;
 
-                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaTheta);
+                        float amplitude = Mathf.Sqrt(2f * S * _deltaOmegas[iw] * _deltaThetas[itheta]);
                         if (amplitude < 1e-5f) { continue; }
                         Vector2 pos = SamplePositionOnRegionEdge(regionCenter, regionSize, dir);
 
