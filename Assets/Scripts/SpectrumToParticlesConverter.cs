@@ -7,13 +7,60 @@ using Random = UnityEngine.Random;
 namespace Assets.Scripts
 {
     /// <summary>
+    /// 频率采样模式
+    /// </summary>
+    public enum FrequencySamplingMode
+    {
+        /// <summary>
+        /// 等频率间隔：Δω 相同（均匀分桶）
+        /// </summary>
+        UniformFrequency,
+        
+        /// <summary>
+        /// 等能量：∫S(ω)dω 相同（能量均匀分布）
+        /// </summary>
+        UniformEnergy,
+        
+        /// <summary>
+        /// 等粒子数：按 S(ω)/ω³ 加权（使各桶粒子数接近相等）
+        /// </summary>
+        UniformParticleCount
+    }
+
+    /// <summary>
     /// 将谱参数（如 JONSWAP）转换为波粒子的工具类。
     /// 可用于边界重建，实现与 FFT 模拟的耦合。
     /// </summary>
     public class SpectrumToParticlesConverter
     {
+        // ====== 采样模式配置 ======
+        /// <summary>
+        /// 频率采样模式（可在运行时修改以对比不同策略）
+        /// </summary>
+        public FrequencySamplingMode SamplingMode = FrequencySamplingMode.UniformFrequency;
+        
+        /// <summary>
+        /// 是否使用固定的绝对频率范围（用于对比不同风速）
+        /// true: 使用 FixedOmegaMin/Max（推荐用于跨风速对比）
+        /// false: 使用相对 ωp 的范围（适合单一风速优化）
+        /// </summary>
+        public bool UseFixedFrequencyRange = true;
+        
+        /// <summary>
+        /// 固定的最小角频率 (rad/s)，仅当 UseFixedFrequencyRange=true 时生效
+        /// 默认值 -1 表示未初始化,会在 WaveParticleSystem.Start() 中根据网格参数自动计算
+        /// </summary>
+        public float FixedOmegaMin = -1f;
+        
+        /// <summary>
+        /// 固定的最大角频率 (rad/s)，仅当 UseFixedFrequencyRange=true 时生效
+        /// 默认值 -1 表示未初始化,会在 WaveParticleSystem.Start() 中根据网格参数自动计算
+        /// </summary>
+        public float FixedOmegaMax = -1f;
+
         // ====== 预计算/缓存 ======
         private bool _initialized;
+        private FrequencySamplingMode _cachedMode;
 
         // 配置与缓存的物理量
         private WavesSettings _ws;
@@ -75,8 +122,28 @@ namespace Assets.Scripts
             _windVec = ws.local.windSpeed;
             _omegaP = ws.spectrums[0].peakOmega;
 
-            _omegaMin = _omegaP * 0.5f;
-            _omegaMax = _omegaP * 2.5f;
+            // 根据配置选择频率范围
+            if (UseFixedFrequencyRange)
+            {
+                // 使用物理限制和相对范围的交集（同时满足两个约束）
+                float omegaMin_relative = _omegaP * 0.5f;
+                float omegaMax_relative = _omegaP * 2.5f;
+                
+                // 取交集：min取较大者，max取较小者
+                _omegaMin = Mathf.Max(FixedOmegaMin, omegaMin_relative);
+                _omegaMax = Mathf.Min(FixedOmegaMax, omegaMax_relative);
+                
+                Debug.Log($"[SpectrumConverter] 频率范围交集: " +
+                         $"物理限制[{FixedOmegaMin:F3}, {FixedOmegaMax:F3}] ∩ " +
+                         $"相对范围[{omegaMin_relative:F3}, {omegaMax_relative:F3}] = " +
+                         $"[{_omegaMin:F3}, {_omegaMax:F3}] rad/s");
+            }
+            else
+            {
+                // 相对峰值频率的范围（自适应优化）
+                _omegaMin = _omegaP * 0.5f;
+                _omegaMax = _omegaP * 2.5f;
+            }
             
             // 计算风向
             _windDirection = Mathf.Atan2(_windVec.y, _windVec.x);
@@ -120,11 +187,29 @@ namespace Assets.Scripts
 
                 float S_deep = S0 * TMA;
 
-                // ====== 关键：除以 ω³ 作为权重 ======
-                // 因为粒子数 ∝ ω³ × S(ω) × Δω，要让各桶粒子数相近，
-                // CDF 按 S(ω)/ω³ 加权，这样高频区域会分配更宽的桶（Δω大），少采样
-                float omega3 = ω * ω * ω;
-                return Mathf.Max(0f, S_deep / (omega3 + 1e-10f));
+                // ====== 根据采样模式选择权重函数 ======
+                switch (SamplingMode)
+                {
+                    case FrequencySamplingMode.UniformFrequency:
+                        // 模式1：等频率间隔（Δω 相同）
+                        // 权重恒为1，CDF 线性增长，等分后得到等间隔分桶
+                        return 1f;
+                    
+                    case FrequencySamplingMode.UniformEnergy:
+                        // 模式2：等能量（Δω × S 相同）
+                        // 权重为 S(ω)，等分 CDF 后每个桶的能量相等
+                        return Mathf.Max(0f, S_deep);
+                    
+                    case FrequencySamplingMode.UniformParticleCount:
+                        // 模式3：等粒子数（按 S(ω)/ω³ 加权）
+                        // 因为粒子数 ∝ ω³ × S(ω) × Δω，这样可使各桶粒子数接近相等
+                        // 高频区域会分配更宽的桶（Δω大），少采样
+                        float omega3 = ω * ω * ω;
+                        return Mathf.Max(0f, S_deep / (omega3 + 1e-10f));
+                    
+                    default:
+                        return Mathf.Max(0f, S_deep);
+                }
             }
 
             // 细网格上评估
@@ -328,6 +413,10 @@ namespace Assets.Scripts
 
             // 小数累加器重置
             batchAccumulate = new List<float>(new float[_Nomega]);
+            
+            // 缓存当前采样模式
+            _cachedMode = SamplingMode;
+            
             _initialized = true;
         }
 
@@ -342,8 +431,8 @@ namespace Assets.Scripts
             int N_theta = 8,
             Allocator allocator = Allocator.Persistent)
         {
-            // 若参数变化（例如不同分辨率），允许动态再初始化
-            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws)
+            // 若参数变化（例如不同分辨率）或采样模式改变，允许动态再初始化
+            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws || SamplingMode != _cachedMode)
             {
                 Initialize(ws, N_omega, N_theta);
             }
@@ -415,8 +504,8 @@ namespace Assets.Scripts
             float deltaTime = 0.02f,
             Allocator allocator = Allocator.Persistent)
         {
-            // 若参数变化（例如不同分辨率），允许动态再初始化
-            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws)
+            // 若参数变化（例如不同分辨率）或采样模式改变，允许动态再初始化
+            if (!_initialized || N_omega != _Nomega || N_theta != _Ntheta || ws != _ws || SamplingMode != _cachedMode)
             {
                 Initialize(ws, N_omega, N_theta);
             }

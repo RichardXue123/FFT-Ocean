@@ -224,6 +224,24 @@ namespace Assets.Scripts
 
             fixedFrameCnt = 0;
 
+            // 根据网格物理尺寸自动计算频率范围
+            if (converter.UseFixedFrequencyRange)
+            {
+                // λ_max = oceanSize → ω_min = √(g·k_min) = √(g·2π/λ_max)
+                float lambda_max = oceanSize;
+                float k_min = 2f * Mathf.PI / lambda_max;
+                converter.FixedOmegaMin = Mathf.Sqrt(wavesSettings.g * k_min);
+
+                // λ_min = oceanSize/resolution × 2 (奈奎斯特采样) → ω_max = √(g·2π/λ_min)
+                float lambda_min = oceanSize / resolution * 2f;
+                float k_max = 2f * Mathf.PI / lambda_min;
+                converter.FixedOmegaMax = Mathf.Sqrt(wavesSettings.g * k_max);
+
+                Debug.Log($"[WaveParticleSystem] 自动计算频率范围: " +
+                         $"λ∈[{lambda_min:F2}m, {lambda_max:F2}m] → " +
+                         $"ω∈[{converter.FixedOmegaMin:F3}, {converter.FixedOmegaMax:F3}] rad/s");
+            }
+
             converter.Initialize(wavesSettings,N_omega,N_theta);
             bucketCounts = new int[N_omega];
 

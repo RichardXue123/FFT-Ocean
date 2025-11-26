@@ -77,6 +77,7 @@ public class WavesSettings : ScriptableObject
     float JonswapPeakFrequency(float g, float fetch, float windSpeed)
     {
         return 22 * Mathf.Pow(windSpeed * fetch / g / g, -0.33f);
+        //return 22.84f * Mathf.Pow(g,0.7f) * Mathf.Pow(fetch,-0.3f) * Mathf.Pow(windSpeed,-0.4f);
     }
 
     readonly int G_PROP = Shader.PropertyToID("GravityAcceleration");
