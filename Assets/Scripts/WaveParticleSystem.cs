@@ -16,6 +16,8 @@ namespace Assets.Scripts
     public class WaveParticleSystem : MonoBehaviour
     {
 
+        [Header("Object")]
+        List<SolidHydrodynamics> solids;
 
         // 基础配置参数
         [Header("初始化播种")]
@@ -107,6 +109,10 @@ namespace Assets.Scripts
             //particleData = new Vector4[MAX_PARTICLES];
             //particleVelData = new Vector2[MAX_PARTICLES];
             Debug.Log($"Generated {waveParticleRegions.Count()} wave particle regions");
+
+            solids = new List<SolidHydrodynamics>(FindObjectsOfType<SolidHydrodynamics>());
+            Debug.Log($"Found {solids.Count} SolidHydrodynamics objects in the scene.");
+
             if (waveParticleRegions.Count == 0)
             {
                 Debug.LogWarning("No particle regions.");
@@ -424,6 +430,32 @@ namespace Assets.Scripts
                 oceanMaterial.SetVector($"_RegionSize{r}", region.size);
 
                 // 11) 更新texture2d for interact
+
+                // 11) Fluid → Solid: apply hydrodynamic forces
+                foreach (var solid in solids)
+                {
+                    int id = solid.regionId;
+
+                    // region 数据
+                    //var region = waveParticleRegions[id];
+
+                    // 注意：你的最终 height map 在 heightMap[id] 数组中，而不是 region.heightMapFloat！
+                    Texture heightTex = heightMap[id];
+
+                    // water density / Cd / resolution 已经在 wavesSettings / inspector 中
+                    float rho = 1025f; // 你如果有单独的 waterDensity 字段可以替代
+                    float Cd = 1.0f; // 或 Inspector 设定
+
+                    solid.ComputeForces(
+                        heightTex,
+                        rho,
+                        Cd,
+                        resolution,         // height map resolution
+                        waveParticleRegions[id].size.x,      // regionSize（你区域是正方形，用 x 就行）
+                        waveParticleRegions[id].center - waveParticleRegions[id].size * 0.5f // regionMin
+                    );
+                }
+
                 //SyncRegionTexturesToCPU(r);
 
                 // 12) debug 打印波粒子区域RMS

@@ -1,0 +1,35 @@
+// ReduceTriangleForces.compute
+
+#pragma kernel CS_Reduce
+
+RWStructuredBuffer<float3> _InForce;
+RWStructuredBuffer<float3> _InTorque;
+RWStructuredBuffer<float4> _InVolume;
+
+RWStructuredBuffer<float3> _OutForce;
+RWStructuredBuffer<float3> _OutTorque;
+RWStructuredBuffer<float4> _OutVolume;
+
+int _Count;
+
+[numthreads(64,1,1)]
+void CS_Reduce(uint id : SV_DispatchThreadID)
+{
+    // 简化版：使用单 pass reduction（可改为多级）
+    float3 sumF = 0;
+    float3 sumT = 0;
+    float3 sumVC = 0;
+    float sumV = 0;
+
+    for (uint i=id; i<_Count; i+=64) {
+        sumF += _InForce[i];
+        sumT += _InTorque[i];
+        float4 v = _InVolume[i];
+        sumVC += v.xyz;
+        sumV += v.w;
+    }
+
+    _OutForce[id]  = sumF;
+    _OutTorque[id] = sumT;
+    _OutVolume[id] = float4(sumVC, sumV);
+}

@@ -1,0 +1,270 @@
+// PerTriangleForces.compute
+
+#pragma kernel CS_TriangleForces
+
+// ---------------------------------------------
+// Buffers
+// ---------------------------------------------
+StructuredBuffer<uint3> _Triangles;          // triangle index buffer
+StructuredBuffer<float3> _VerticesLocal;     // original mesh vertices (local space)
+RWStructuredBuffer<float3> _OutForce;        // per-triangle force
+RWStructuredBuffer<float3> _OutTorque;       // per-triangle torque
+RWStructuredBuffer<float4> _OutVolume;       // xyz = submerged center * volume, w = volume
+
+// ---------------------------------------------
+// Inputs / Params
+// ---------------------------------------------
+float4x4 _LocalToWorld;
+float4x4 _WorldToLocal;
+
+int _TriangleCount;
+
+float _WaterDensity;
+float _Cd;          // drag coefficient
+float _Gravity;
+
+// region settings
+float2 _RegionMin;          // world-space region bottom-left
+float _RegionSize;          // world-space region size (square region)
+int _Resolution;            // heightMap resolution (N)
+
+// textures
+Texture2D<float> _HeightMap;
+// !!! 去掉 SamplerState sampler_linear !!!
+
+// rigidbody info
+float3 _ObjectVelocity;     // center-of-mass velocity
+float3 _AngularVelocity;
+float3 _ObjectCOM;          // center of mass (world space)
+
+// ---------------------------------------------
+// Helper: sample heightmap (用 Load 而不是 SampleLevel)
+// ---------------------------------------------
+float SampleHeight(float2 worldXZ)
+{
+    float2 uv = (worldXZ - _RegionMin) / _RegionSize;
+    uv = saturate(uv);  // clamp 到 [0,1]
+
+    uint w, h;
+    _HeightMap.GetDimensions(w, h);
+
+    float2 coordF = uv * (float2(w, h) - 1.0);
+    int2 coord = (int2)(coordF + 0.5);
+
+    return _HeightMap.Load(int3(coord, 0)).r;
+}
+
+// ---------------------------------------------
+// Helper: get world-space velocity at a point
+// v = linear + omega × r
+// ---------------------------------------------
+float3 GetVelocityAtPoint(float3 worldPos)
+{
+    float3 r = worldPos - _ObjectCOM;
+    float3 angular = cross(_AngularVelocity, r);
+    return _ObjectVelocity + angular;
+}
+
+// ---------------------------------------------
+// Cut triangle by water surface and produce
+// submerged polygon (1 or 2 small triangles).
+//
+// Return area, centerWS, volume contribution.
+// ---------------------------------------------
+void ComputeSubmergedTriangle(
+    float3 w0, float3 w1, float3 w2,
+    float d0, float d1, float d2,
+    out float area, out float3 centerWS, out float volume
+){
+    // initialize
+    area = 0;
+    centerWS = 0;
+    volume = 0;
+
+    // classify points
+    bool s0 = (d0 > 0);
+    bool s1 = (d1 > 0);
+    bool s2 = (d2 > 0);
+
+    float3 v[3] = { w0, w1, w2 };
+    float  d[3] = { d0, d1, d2 };
+
+    // fully submerged
+    if (s0 && s1 && s2)
+    {
+        float3 e1 = w1 - w0;
+        float3 e2 = w2 - w0;
+        float3 n = cross(e1, e2);
+        float A = length(n) * 0.5;
+
+        float3 C = (w0 + w1 + w2) / 3.0;
+
+        area     = A;
+        centerWS = C;
+
+        float ny = normalize(n).y;
+        float di = (d0 + d1 + d2) / 3.0;
+        volume   = A * di * ny;
+        volume = abs(volume);
+        return;
+    }
+
+    // fully above
+    if (!s0 && !s1 && !s2)
+    {
+        return;
+    }
+
+    // Mixed: clip triangle
+    float3 inside[3];
+    float3 outside[3];
+    int inCount = 0;
+    int outCount = 0;
+
+    [unroll]
+    for (int i = 0; i < 3; i++)
+    {
+        if (d[i] > 0)
+        {
+            inside[inCount++] = v[i];
+        }
+        else
+        {
+            outside[outCount++] = v[i];
+        }
+    }
+
+    float3 poly[4];
+    int pCount = 0;
+
+    if (inCount == 1)
+    {
+        float3 A = inside[0];
+        float3 B = outside[0];
+        float3 C = outside[1];
+
+        // 这里简单用了 d0/d1/d2，你后面可以按真实对应修改
+        float3 interpAB = A + (B - A) * (abs(d0) / (abs(d0) + abs(d1)));
+        float3 interpAC = A + (C - A) * (abs(d0) / (abs(d0) + abs(d2)));
+
+        poly[0] = A;
+        poly[1] = interpAB;
+        poly[2] = interpAC;
+        pCount  = 3;
+    }
+    else if (inCount == 2)
+    {
+        float3 A = inside[0];
+        float3 B = inside[1];
+        float3 C = outside[0];
+
+        float3 I1 = A + (C - A) * (abs(d0) / (abs(d0) + abs(d2)));
+        float3 I2 = B + (C - B) * (abs(d1) / (abs(d1) + abs(d2)));
+
+        poly[0] = A;
+        poly[1] = B;
+        poly[2] = I1;
+        poly[3] = I2;
+        pCount  = 4;
+    }
+
+    float  totalA = 0;
+    float3 totalC = 0;
+
+    [unroll]
+    for (int i = 1; i < pCount - 1; i++)
+    {
+        float3 a = poly[0];
+        float3 b = poly[i];
+        float3 c = poly[i + 1];
+
+        float3 e1 = b - a;
+        float3 e2 = c - a;
+        float3 n  = cross(e1, e2);
+        float  A  = length(n) * 0.5;
+
+        float3 Ctri = (a + b + c) / 3.0;
+
+        totalA += A;
+        totalC += Ctri * A;
+    }
+
+    if (totalA > 0)
+    {
+        centerWS = totalC / totalA;
+        area     = totalA;
+
+        float di = (d0 + d1 + d2) / 3.0;
+        float3 e1 = w1 - w0;
+        float3 e2 = w2 - w0;
+        float3 n  = cross(e1, e2);
+        float ny  = normalize(n).y;
+
+        volume = totalA * di * ny;
+    }
+}
+
+// ---------------------------------------------
+// MAIN KERNEL
+// ---------------------------------------------
+[numthreads(64,1,1)]
+void CS_TriangleForces(uint id : SV_DispatchThreadID)
+{
+    if (id >= _TriangleCount) return;
+
+    uint3 tri = _Triangles[id];
+
+    float3 local0 = _VerticesLocal[tri.x];
+    float3 local1 = _VerticesLocal[tri.y];
+    float3 local2 = _VerticesLocal[tri.z];
+
+    float3 w0 = mul(_LocalToWorld, float4(local0,1)).xyz;
+    float3 w1 = mul(_LocalToWorld, float4(local1,1)).xyz;
+    float3 w2 = mul(_LocalToWorld, float4(local2,1)).xyz;
+
+    // sample water heights
+    float h0 = SampleHeight(w0.xz);
+    float h1 = SampleHeight(w1.xz);
+    float h2 = SampleHeight(w2.xz);
+
+    float d0 = h0 - w0.y;
+    float d1 = h1 - w1.y;
+    float d2 = h2 - w2.y;
+
+    // compute submerged geometry
+    float  area, volume;
+    float3 centerWS;
+    ComputeSubmergedTriangle(w0, w1, w2, d0, d1, d2, area, centerWS, volume);
+
+    if (area <= 0)
+    {
+        _OutForce[id]  = 0;
+        _OutTorque[id] = 0;
+        _OutVolume[id] = 0;
+        return;
+    }
+
+    // velocity at submerged center
+    float3 v_obj = GetVelocityAtPoint(centerWS);
+
+    // water velocity = 0 (可扩展为 WP velocity)
+    float3 v_rel = v_obj;
+
+    // projected area
+    float3 n = normalize(cross(w1 - w0, w2 - w0));
+    float NdotV = dot(n, normalize(v_rel));
+    float Aproj = area * max(0, NdotV);
+
+    // drag
+    float  speed = length(v_rel);
+    float3 Fd    = -0.5 * _Cd * _WaterDensity * Aproj * speed * v_rel;
+
+    // torque = r × F
+    float3 r  = centerWS - _ObjectCOM;
+    float3 Tq = cross(r, Fd);
+
+    // write results
+    _OutForce[id]  = Fd;
+    _OutTorque[id] = Tq;
+    _OutVolume[id] = float4(centerWS * volume, volume);
+}
