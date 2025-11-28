@@ -197,7 +197,7 @@ namespace Assets.Scripts
             if (V_inwater > 0f || v.sqrMagnitude > 1e-2f)
             {
                 Vector2 posXZ = new Vector2(transform.position.x, transform.position.z);
-                water.GenerateWaveParticles(regionIndex, posXZ, V_inwater, v, dt, DirSampleCount);
+                //water.GenerateWaveParticles(regionIndex, posXZ, V_inwater, v, dt, DirSampleCount);
             }
         }
     }

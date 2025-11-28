@@ -5,11 +5,19 @@
 // ---------------------------------------------
 // Buffers
 // ---------------------------------------------
-StructuredBuffer<uint3> _Triangles;          // triangle index buffer
-StructuredBuffer<float3> _VerticesLocal;     // original mesh vertices (local space)
-RWStructuredBuffer<float3> _OutForce;        // per-triangle force
-RWStructuredBuffer<float3> _OutTorque;       // per-triangle torque
-RWStructuredBuffer<float4> _OutVolume;       // xyz = submerged center * volume, w = volume
+StructuredBuffer<uint3> _Triangles;
+StructuredBuffer<float3> _VerticesLocal;
+
+// 流体 → 固体（力学）
+RWStructuredBuffer<float3> _OutForceWater;
+RWStructuredBuffer<float3> _OutForceAir;
+RWStructuredBuffer<float3> _OutTorque;
+RWStructuredBuffer<float4> _OutVolume;   // xyz = centerSub * volume, w = volume
+
+// 固体 → 流体（源项：排水通量）
+// 每个三角形一条：单位都是 [m^3 / s]
+RWStructuredBuffer<float> _OutVertFlux;  // y 方向体积通量（压水 / 抽水）
+RWStructuredBuffer<float> _OutHorzFlux;  // xz 方向体积通量（水平扫水，用于 Kelvin 尾迹）
 
 // ---------------------------------------------
 // Inputs / Params
@@ -20,34 +28,37 @@ float4x4 _WorldToLocal;
 int _TriangleCount;
 
 float _WaterDensity;
-float _Cd;          // drag coefficient
+float _CdWater;       // 水下阻力 Cd
+float _AirDensity;    // 空气密度
+float _CdAir;         // 空气阻力 Cd
 float _Gravity;
 
 // region settings
-float2 _RegionMin;          // world-space region bottom-left
-float _RegionSize;          // world-space region size (square region)
-int _Resolution;            // heightMap resolution (N)
+float2 _RegionMin;
+float  _RegionSize;
+int    _Resolution;
 
 // textures
 Texture2D<float> _HeightMap;
-// !!! 去掉 SamplerState sampler_linear !!!
 
 // rigidbody info
-float3 _ObjectVelocity;     // center-of-mass velocity
+float3 _ObjectVelocity;
 float3 _AngularVelocity;
-float3 _ObjectCOM;          // center of mass (world space)
+float3 _ObjectCOM;
+
+// 风速（世界空间）
+float3 _WindVelocity;
 
 // ---------------------------------------------
-// Helper: sample heightmap (用 Load 而不是 SampleLevel)
+// Sample height
 // ---------------------------------------------
 float SampleHeight(float2 worldXZ)
 {
     float2 uv = (worldXZ - _RegionMin) / _RegionSize;
-    uv = saturate(uv);  // clamp 到 [0,1]
+    uv = saturate(uv);
 
     uint w, h;
     _HeightMap.GetDimensions(w, h);
-
     float2 coordF = uv * (float2(w, h) - 1.0);
     int2 coord = (int2)(coordF + 0.5);
 
@@ -55,8 +66,7 @@ float SampleHeight(float2 worldXZ)
 }
 
 // ---------------------------------------------
-// Helper: get world-space velocity at a point
-// v = linear + omega × r
+// RigidBody point velocity
 // ---------------------------------------------
 float3 GetVelocityAtPoint(float3 worldPos)
 {
@@ -66,22 +76,17 @@ float3 GetVelocityAtPoint(float3 worldPos)
 }
 
 // ---------------------------------------------
-// Cut triangle by water surface and produce
-// submerged polygon (1 or 2 small triangles).
-//
-// Return area, centerWS, volume contribution.
+// Submerged polygon (same as before, but volume 正值)
 // ---------------------------------------------
 void ComputeSubmergedTriangle(
     float3 w0, float3 w1, float3 w2,
     float d0, float d1, float d2,
-    out float area, out float3 centerWS, out float volume
-){
-    // initialize
+    out float area, out float3 centerWS, out float volume)
+{
     area = 0;
     centerWS = 0;
     volume = 0;
 
-    // classify points
     bool s0 = (d0 > 0);
     bool s1 = (d1 > 0);
     bool s2 = (d2 > 0);
@@ -94,18 +99,18 @@ void ComputeSubmergedTriangle(
     {
         float3 e1 = w1 - w0;
         float3 e2 = w2 - w0;
-        float3 n = cross(e1, e2);
-        float A = length(n) * 0.5;
+        float3 n  = cross(e1, e2);
+        float  A  = length(n) * 0.5;
 
         float3 C = (w0 + w1 + w2) / 3.0;
 
         area     = A;
         centerWS = C;
 
+        // 用原来的近似体积公式
         float ny = normalize(n).y;
         float di = (d0 + d1 + d2) / 3.0;
-        volume   = A * di * ny;
-        volume = abs(volume);
+        volume   = abs(A * di * ny);
         return;
     }
 
@@ -115,7 +120,7 @@ void ComputeSubmergedTriangle(
         return;
     }
 
-    // Mixed: clip triangle
+    // Mixed
     float3 inside[3];
     float3 outside[3];
     int inCount = 0;
@@ -143,7 +148,7 @@ void ComputeSubmergedTriangle(
         float3 B = outside[0];
         float3 C = outside[1];
 
-        // 这里简单用了 d0/d1/d2，你后面可以按真实对应修改
+        // 简化插值（以后可以按 index 精细对应）
         float3 interpAB = A + (B - A) * (abs(d0) / (abs(d0) + abs(d1)));
         float3 interpAC = A + (C - A) * (abs(d0) / (abs(d0) + abs(d2)));
 
@@ -194,18 +199,18 @@ void ComputeSubmergedTriangle(
         centerWS = totalC / totalA;
         area     = totalA;
 
+        // 体积：仍然用原来的近似 + abs
         float di = (d0 + d1 + d2) / 3.0;
         float3 e1 = w1 - w0;
         float3 e2 = w2 - w0;
         float3 n  = cross(e1, e2);
         float ny  = normalize(n).y;
-
-        volume = totalA * di * ny;
+        volume = abs(totalA * di * ny);
     }
 }
 
 // ---------------------------------------------
-// MAIN KERNEL
+// MAIN
 // ---------------------------------------------
 [numthreads(64,1,1)]
 void CS_TriangleForces(uint id : SV_DispatchThreadID)
@@ -222,7 +227,25 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
     float3 w1 = mul(_LocalToWorld, float4(local1,1)).xyz;
     float3 w2 = mul(_LocalToWorld, float4(local2,1)).xyz;
 
-    // sample water heights
+    // ---- 全三角形几何（不考虑水线）----
+    float3 e1_full = w1 - w0;
+    float3 e2_full = w2 - w0;
+    float3 n_full  = cross(e1_full, e2_full);
+    float  areaFull = length(n_full) * 0.5;
+    if (areaFull < 1e-8)
+    {
+        _OutForceWater[id] = 0;
+        _OutForceAir[id]   = 0;
+        _OutTorque[id]     = 0;
+        _OutVolume[id]     = 0;
+
+        _OutVertFlux[id]   = 0;
+        _OutHorzFlux[id]   = 0;
+        return;
+    }
+    float3 centerFull = (w0 + w1 + w2) / 3.0;
+
+    // ---- 水面高度 & 深度 d = h - y（在水下 d>0）----
     float h0 = SampleHeight(w0.xz);
     float h1 = SampleHeight(w1.xz);
     float h2 = SampleHeight(w2.xz);
@@ -231,40 +254,130 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
     float d1 = h1 - w1.y;
     float d2 = h2 - w2.y;
 
-    // compute submerged geometry
-    float  area, volume;
-    float3 centerWS;
-    ComputeSubmergedTriangle(w0, w1, w2, d0, d1, d2, area, centerWS, volume);
+    // ---- 水下部分几何（面积 / 中心 / 体积）----
+    float  areaSub;
+    float3 centerSub;
+    float  volume;
+    ComputeSubmergedTriangle(w0, w1, w2, d0, d1, d2, areaSub, centerSub, volume);
 
-    if (area <= 0)
+    // ---- 由“全三角形 - 水下部分”得到水上部分 ----
+    float  areaAir = 0;
+    float3 centerAir = 0;
+
+    const float eps = 1e-5;
+
+    if (areaSub <= eps)
     {
-        _OutForce[id]  = 0;
-        _OutTorque[id] = 0;
-        _OutVolume[id] = 0;
-        return;
+        // 完全在水上
+        areaAir   = areaFull;
+        centerAir = centerFull;
+        areaSub   = 0;
+        centerSub = 0;
+        volume    = 0;
+    }
+    else if (areaSub >= areaFull - eps)
+    {
+        // 完全在水下
+        areaAir   = 0;
+        centerAir = 0;
+    }
+    else
+    {
+        // 部分浸没：水上 = 全三角形 - 水下部分
+        areaAir = max(areaFull - areaSub, 0);
+        float3 momentFull = centerFull * areaFull;
+        float3 momentSub  = centerSub * areaSub;
+        float3 momentAir  = momentFull - momentSub;
+        centerAir = momentAir / max(areaAir, eps);
     }
 
-    // velocity at submerged center
-    float3 v_obj = GetVelocityAtPoint(centerWS);
+    // -------------------------------------------------
+    // 1) 浮力数据写回（只用水下体积）
+    // -------------------------------------------------
+    if (volume <= 0)
+    {
+        _OutVolume[id] = 0;
+    }
+    else
+    {
+        _OutVolume[id] = float4(centerSub * volume, volume);
+    }
 
-    // water velocity = 0 (可扩展为 WP velocity)
-    float3 v_rel = v_obj;
+    // -------------------------------------------------
+    // 2) 水下 / 空气阻力 & 固体 → 液体体积通量
+    // -------------------------------------------------
+    float3 Fd_water = 0;
+    float3 Tq_water = 0;
 
-    // projected area
-    float3 n = normalize(cross(w1 - w0, w2 - w0));
-    float NdotV = dot(n, normalize(v_rel));
-    float Aproj = area * max(0, NdotV);
+    float  vertFlux = 0;   // y 方向体积通量 [m^3/s]
+    float  horzFlux = 0;   // xz 方向体积通量 [m^3/s]
 
-    // drag
-    float  speed = length(v_rel);
-    float3 Fd    = -0.5 * _Cd * _WaterDensity * Aproj * speed * v_rel;
+    if (areaSub > eps)
+    {
+        float3 v_obj_sub = GetVelocityAtPoint(centerSub);
+        float3 v_water   = float3(0,0,0);      // 之后可以用 WP 的水体速度
+        float3 v_rel     = v_obj_sub - v_water;
 
-    // torque = r × F
-    float3 r  = centerWS - _ObjectCOM;
-    float3 Tq = cross(r, Fd);
+        // ---- 固体→液体：体积通量（源项）----
+        // 垂直方向：v_rel.y * 浸没面积
+        vertFlux = v_rel.y * areaSub;
 
-    // write results
-    _OutForce[id]  = Fd;
-    _OutTorque[id] = Tq;
-    _OutVolume[id] = float4(centerWS * volume, volume);
+        // 水平方向：用速度在 xz 的长度 * 一个有效面积
+        float2 vH = v_rel.xz;
+        float  speedH = length(vH);
+
+        float3 n_w   = normalize(n_full);
+        float3 dir_v = (length(v_rel) > 1e-6) ? (v_rel / length(v_rel)) : float3(0,1,0);
+        float  NdotV = dot(n_w, dir_v);
+        float  Aproj = areaSub * max(0, abs(NdotV));   // 有效投影面积（可按需要调整）
+
+        horzFlux = speedH * Aproj;
+
+        // ---- 阻力（你之前的实现）----
+        float  speed_w   = length(v_rel);
+        if (speed_w > 1e-4 && _CdWater > 0)
+        {
+            float3 dir_w = v_rel / speed_w;
+            float NdotVw = dot(n_w, dir_w);
+            float AprojW = areaSub * max(0, NdotVw);
+
+            Fd_water = -0.5 * _WaterDensity * _CdWater * AprojW * speed_w * v_rel;
+            float3 r_w = centerSub - _ObjectCOM;
+            Tq_water = cross(r_w, Fd_water);
+        }
+    }
+
+    // ---- 空气阻力（风速相对）：只作用在水上的那部分 ----
+    float3 Fd_air = 0;
+    float3 Tq_air = 0;
+
+    if (areaAir > eps && _CdAir > 0)
+    {
+        float3 v_obj_air = GetVelocityAtPoint(centerAir);
+        float3 v_air     = _WindVelocity;          // 世界空间风速
+        float3 v_rel_a   = v_obj_air - v_air;      // 物体相对风的速度
+
+        float  speed_a   = length(v_rel_a);
+        if (speed_a > 1e-4)
+        {
+            float3 dir_a = v_rel_a / speed_a;
+            float3 n_a   = normalize(n_full);
+            float NdotVa = dot(n_a, dir_a);
+            float AprojA = areaAir * max(0, NdotVa);
+
+            Fd_air = -0.5 * _AirDensity * _CdAir * AprojA * speed_a * v_rel_a;
+            float3 r_a = centerAir - _ObjectCOM;
+            Tq_air = cross(r_a, Fd_air);
+        }
+    }
+
+    float3 Tq = Tq_water + Tq_air;
+
+    _OutForceWater[id] = Fd_water;
+    _OutForceAir[id]   = Fd_air;
+    _OutTorque[id]     = Tq;
+
+    // 固体 → 流体：每个三角形的排水“源项”
+    _OutVertFlux[id]   = vertFlux;
+    _OutHorzFlux[id]   = horzFlux;
 }

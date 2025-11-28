@@ -2,34 +2,59 @@
 
 #pragma kernel CS_Reduce
 
-RWStructuredBuffer<float3> _InForce;
-RWStructuredBuffer<float3> _InTorque;
-RWStructuredBuffer<float4> _InVolume;
+// 输入：力 / 力矩 / 体积
+StructuredBuffer<float3> _InForceWater;
+StructuredBuffer<float3> _InForceAir;
+StructuredBuffer<float3> _InTorque;
+StructuredBuffer<float4> _InVolume;      // xyz = center * volume, w = volume
 
-RWStructuredBuffer<float3> _OutForce;
+// 输入：固体 → 液体排水通量（每三角形一条，单位 m^3/s）
+StructuredBuffer<float>  _InVertFlux;    // 垂直体积通量
+StructuredBuffer<float>  _InHorzFlux;    // 水平体积通量
+
+// 输出：部分和（一般开 64 个元素）
+RWStructuredBuffer<float3> _OutForceWater;
+RWStructuredBuffer<float3> _OutForceAir;
 RWStructuredBuffer<float3> _OutTorque;
 RWStructuredBuffer<float4> _OutVolume;
+
+RWStructuredBuffer<float>  _OutVertFlux;
+RWStructuredBuffer<float>  _OutHorzFlux;
 
 int _Count;
 
 [numthreads(64,1,1)]
 void CS_Reduce(uint id : SV_DispatchThreadID)
 {
-    // 简化版：使用单 pass reduction（可改为多级）
-    float3 sumF = 0;
-    float3 sumT = 0;
-    float3 sumVC = 0;
-    float sumV = 0;
+    // 简单单 pass reduction：每个线程负责一条“条带”
+    float3 sumFW  = 0;
+    float3 sumFA  = 0;
+    float3 sumT   = 0;
+    float3 sumVC  = 0;
+    float  sumV   = 0;
 
-    for (uint i=id; i<_Count; i+=64) {
-        sumF += _InForce[i];
-        sumT += _InTorque[i];
+    float  sumVert = 0;   // Σ 垂直体积通量
+    float  sumHorz = 0;   // Σ 水平体积通量
+
+    for (uint i = id; i < _Count; i += 64)
+    {
+        sumFW += _InForceWater[i];
+        sumFA += _InForceAir[i];
+        sumT  += _InTorque[i];
+
         float4 v = _InVolume[i];
         sumVC += v.xyz;
-        sumV += v.w;
+        sumV  += v.w;
+
+        sumVert += _InVertFlux[i];
+        sumHorz += _InHorzFlux[i];
     }
 
-    _OutForce[id]  = sumF;
-    _OutTorque[id] = sumT;
-    _OutVolume[id] = float4(sumVC, sumV);
+    _OutForceWater[id] = sumFW;
+    _OutForceAir[id]   = sumFA;
+    _OutTorque[id]     = sumT;
+    _OutVolume[id]     = float4(sumVC, sumV);
+
+    _OutVertFlux[id]   = sumVert;
+    _OutHorzFlux[id]   = sumHorz;
 }
