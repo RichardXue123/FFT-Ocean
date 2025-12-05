@@ -1469,10 +1469,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 616a7803c32862640b746857d9ad6df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  maxSpeed: 20
-  maxReverseSpeed: 15
-  accel: 8
-  brake: 10
+  maxSpeed: 8
+  maxReverseSpeed: 5
+  accel: 4
+  brake: 5
   maxTurnRateDeg: 90
   turnGain: 100000
   lateralGrip: 5
@@ -1516,6 +1516,10 @@ MonoBehaviour:
   perTriangleCS: {fileID: 7200000, guid: c9e2fdfd2fab64b4991faf7588a14a8b, type: 3}
   reduceCS: {fileID: 7200000, guid: 1fd4d78fef819de418ea75388c57a48b, type: 3}
   rb: {fileID: 1336822121}
+  totalVertFlux: 0
+  totalHorzFlux: 0
+  smoothedVertFlux: 0
+  smoothedHorzFlux: 0
 --- !u!1 &1707354933
 GameObject:
   m_ObjectHideFlags: 0

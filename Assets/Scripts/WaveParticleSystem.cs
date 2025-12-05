@@ -292,6 +292,8 @@ namespace Assets.Scripts
             }
             particleCnt = 0;
 
+            UpdateRegionCentersFromSolids(Time.deltaTime);
+
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
             oceanMaterial.SetFloat("_BlendRange", blendRange);
             oceanMaterial.SetFloat("_BlendStrength", blendStrength);
@@ -1146,6 +1148,59 @@ namespace Assets.Scripts
             }
         }
 
+        /// <summary>
+        /// 让每个 WaveParticleRegion 根据对应的 SolidHydrodynamics 移动中心（只改 xz）
+        /// </summary>
+        void UpdateRegionCentersFromSolids(float dt)
+        {
+            // 区域跟随灵敏度（可以拉到 Inspector 里变成 [SerializeField]）
+            float followSpeed = 2f;          // 越大越突变
+            float deadZone = 0.25f;          // 死区占比：船在区域中心 ± 25% size 内不强制跟随
+
+            foreach (var solid in solids)
+            {
+                int id = solid.regionId;
+                if (id < 0 || id >= waveParticleRegions.Count)
+                    continue;
+
+                var region = waveParticleRegions[id];
+
+                // 船的世界空间投影位置
+                Vector3 rbPos = solid.rb.worldCenterOfMass;
+                Vector2 targetXZ = new Vector2(rbPos.x, rbPos.z);
+
+                // 当前区域中心
+                Vector2 centerXZ = new Vector2(region.center.x, region.center.y);
+
+                // 船相对于区域中心的位置
+                Vector2 local = targetXZ - centerXZ;
+
+                // 死区：只有当船离中心太远时才推动区域中心
+                float halfX = region.size.x * 0.5f;
+                float halfZ = region.size.y * 0.5f;
+                float deadX = halfX * deadZone;
+                float deadZ = halfZ * deadZone;
+
+                Vector2 offset = Vector2.zero;
+
+                // x 方向
+                if (local.x > deadX) offset.x = local.x - deadX;
+                else if (local.x < -deadX) offset.x = local.x + deadX;
+
+                // z 方向
+                if (local.y > deadZ) offset.y = local.y - deadZ;
+                else if (local.y < -deadZ) offset.y = local.y + deadZ;
+
+                if (offset.sqrMagnitude > 1e-6f)
+                {
+                    // 平滑移动区域中心，避免瞬移
+                    Vector2 newCenterXZ = centerXZ + offset * Mathf.Clamp01(followSpeed * dt);
+
+                    region.center.x = newCenterXZ.x;
+                    region.center.y = newCenterXZ.y;
+                }
+            }
+        }
 
 
     }
