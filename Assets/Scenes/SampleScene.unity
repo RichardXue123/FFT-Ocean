@@ -1473,7 +1473,7 @@ MonoBehaviour:
   maxReverseSpeed: 5
   accel: 4
   brake: 5
-  maxTurnRateDeg: 90
+  maxTurnRateDeg: 180
   turnGain: 100000
   lateralGrip: 5
   upMaxSpeed: 5

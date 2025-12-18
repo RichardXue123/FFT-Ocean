@@ -64,8 +64,8 @@ namespace Assets.Scripts
 
         // 配置与缓存的物理量
         private WavesSettings _ws;
-        private int _Nomega;
-        private int _Ntheta;
+        public int _Nomega;
+        public int _Ntheta;
 
         private float _g;            // 重力加速度
         private float _depth;        // 水深
@@ -78,8 +78,8 @@ namespace Assets.Scripts
         public float Tp = 3.8f;     // 涌浪 峰值周期 Tp
         public float Hs = 3.0f;     //涌浪 有义波高，默认3m
 
-        private float _omegaMin;
-        private float _omegaMax;
+        public float _omegaMin;
+        public float _omegaMax;
         //private float _deltaOmega;
         private float _deltaTheta;
 
@@ -88,17 +88,17 @@ namespace Assets.Scripts
         public float[] _deltaOmegas;
         // 额外保存桶边界（调试/可视化有用）
         public float[] _omegaEdges;
-        private float[] _ks;           // k[i]
+        public float[] _ks;           // k[i]
         public float[] _radii;        // radius[i] = π/k
-        private float[] _phaseSpeeds;  // c[i] = sqrt(g/k)
-        private float[] _omegaPow3;    // ω^3（用于 per-frame 公式）
-        private float[] _omegaPow4;    // ω^4（用于全区域公式）
+        public float[] _phaseSpeeds;  // c[i] = sqrt(g/k)
+        public float[] _omegaPow3;    // ω^3（用于 per-frame 公式）
+        public float[] _omegaPow4;    // ω^4（用于全区域公式）
 
         // 方向分桶相关
-        private float[] _thetas;       // θ[i] - 各桶的中心方向（相对风向）
-        private float[] _deltaThetas;  // Δθ[i] - 各桶的角度宽度
-        private float[] _thetaEdges;   // 方向桶边界
-        private float _windDirection;  // 风向角度（弧度）
+        public float[] _thetas;       // θ[i] - 各桶的中心方向（相对风向）
+        public float[] _deltaThetas;  // Δθ[i] - 各桶的角度宽度
+        public float[] _thetaEdges;   // 方向桶边界
+        public float _windDirection;  // 风向角度（弧度）
 
         // 小数累计
         public List<float> batchAccumulate = new List<float>();
@@ -613,7 +613,7 @@ namespace Assets.Scripts
         /// <summary>
         /// 缓存版：内部直接用缓存的 g/depth/fetch/wind/omega_p，加速调用。
         /// </summary>
-        private float JONSWAPSpectrumCached(float ω, Vector2 dir)
+        public float JONSWAPSpectrumCached(float ω, Vector2 dir)
         {
             // 这里直接复用上面的公式，但把参数替换为缓存
             float k = ω * ω / _g;
@@ -646,6 +646,62 @@ namespace Assets.Scripts
             return S_deep * D * domega_dk;
         }
 
+        /// <summary>
+        /// 根据粒子方向 dir 找到最近的方向桶索引 itheta（相对风向）
+        /// </summary>
+        public int FindThetaBin(Vector2 dir)
+        {
+            if (dir.sqrMagnitude < 1e-8f)
+                return 0;
+
+            // 粒子方向的绝对角度
+            float thetaAbs = Mathf.Atan2(dir.y, dir.x); // (-π, π]
+
+            // 转成相对风向角度 θ_rel ∈ [-π, π]
+            float thetaRel = thetaAbs - _windDirection;
+            thetaRel = Mathf.Repeat(thetaRel + Mathf.PI, 2f * Mathf.PI) - Mathf.PI;
+
+            int best = 0;
+            float bestDiff = float.MaxValue;
+
+            for (int i = 0; i < _Ntheta; i++)
+            {
+                float diff = Mathf.Abs(thetaRel - _thetas[i]);
+                if (diff < bestDiff)
+                {
+                    bestDiff = diff;
+                    best = i;
+                }
+            }
+
+            return best;
+        }
+        
+        /// <summary>
+        /// 返回 (iw, itheta) 这个离散 bin 的理论谱能量 E_bin ≈ S(ω,θ) Δω Δθ
+        /// </summary>
+        public float EvalBinEnergy(int iw, int itheta)
+        {
+            if (_Nomega <= 0 || _Ntheta <= 0) return 0f;
+
+            iw     = Mathf.Clamp(iw, 0, _Nomega  - 1);
+            itheta = Mathf.Clamp(itheta, 0, _Ntheta - 1);
+
+            float omega  = _omegas[iw];
+            float dOmega = _deltaOmegas[iw];
+
+            float thetaRel = _thetas[itheta];
+            float thetaAbs = _windDirection + thetaRel;
+            Vector2 dir = new Vector2(Mathf.Cos(thetaAbs), Mathf.Sin(thetaAbs));
+
+            float dTheta = _deltaThetas[itheta];
+
+            float S = JONSWAPSpectrumCached(omega, dir);
+            if (S <= 0f || float.IsNaN(S) || float.IsInfinity(S))
+                return 0f;
+
+            return S * dOmega * dTheta;
+        }
 
         /// <summary>
         /// 计算带方向和深度修正的 JONSWAPGlenn 频谱密度 S(k,dir) 涌浪Swell用

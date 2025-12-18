@@ -9,6 +9,8 @@ using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.Rendering;
+using System.IO;
+using System.Globalization;
 using Debug = UnityEngine.Debug;
 
 namespace Assets.Scripts
@@ -961,6 +963,452 @@ namespace Assets.Scripts
             return new Vector3(worldXZ.x, region.center.y + height, worldXZ.y);
         }
 
+
+        /// <summary>
+        /// 导出测得频谱与理论频谱的二维矩阵到 CSV 文件
+        /// 额外导出：
+        /// 1) 每个 theta 上对所有 omega 的能量和（方向谱边缘）
+        /// 2) 每个 omega 上对所有 theta 的能量和（频谱边缘）
+        /// </summary>
+        void ExportSpectrumCsv(
+            double[,] E_meas,
+            double[,] E_theory,
+            SpectrumToParticlesConverter converter,
+            WavesSettings ws,
+            Vector2 regionSize)
+        {
+            int Nw = converter._Nomega;
+            int Nt = converter._Ntheta;
+
+            // === 文件名构造 ===
+            float wind = ws.local.windSpeed.magnitude;
+            float size = regionSize.x;
+
+            string date = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string fileName = $"{wind:F1}_{size:F1}_{Nw}_{Nt}_{date}.csv";
+
+            // 放到 Assets/Exports 下面：
+            string dir = Path.Combine(Application.dataPath, "Exports");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, fileName);
+
+            using (StreamWriter sw = new StreamWriter(path, false, System.Text.Encoding.UTF8))
+            {
+                sw.WriteLine("Hybrid Ocean Spectrum Export");
+                sw.WriteLine($"WindSpeed,{wind:F3}");
+                sw.WriteLine($"RegionSize,{size}");
+                sw.WriteLine($"N_omega,{Nw}");
+                sw.WriteLine($"N_theta,{Nt}");
+                sw.WriteLine($"Date,{date}");
+                sw.WriteLine();
+
+                // =======================
+                // 1) 2D 矩阵：E(omega, theta)
+                // =======================
+                sw.WriteLine("Full 2D Spectrum (normalized)");
+                sw.Write("Bin");
+                for (int it = 0; it < Nt; it++)
+                    sw.Write($",theta{it}_meas,theta{it}_theory");
+                sw.WriteLine();
+
+                for (int iw = 0; iw < Nw; iw++)
+                {
+                    sw.Write($"omega{iw}");
+                    for (int it = 0; it < Nt; it++)
+                    {
+                        sw.Write($",{E_meas[iw, it].ToString("F6", CultureInfo.InvariantCulture)}");
+                        sw.Write($",{E_theory[iw, it].ToString("F6", CultureInfo.InvariantCulture)}");
+                    }
+                    sw.WriteLine();
+                }
+
+                sw.WriteLine();
+                
+                // =======================
+                // 2) 同一 theta：对所有 omega 求和
+                //    => 方向边缘谱 E_theta(it)
+                // =======================
+                sw.WriteLine("Directional Marginals: sum over omega for each theta");
+                sw.WriteLine("thetaIndex,meas_sum,theory_sum");
+
+                for (int it = 0; it < Nt; it++)
+                {
+                    double sumMeasTheta = 0.0;
+                    double sumTheoryTheta = 0.0;
+                    for (int iw = 0; iw < Nw; iw++)
+                    {
+                        sumMeasTheta   += E_meas[iw, it];
+                        sumTheoryTheta += E_theory[iw, it];
+                    }
+
+                    sw.WriteLine(
+                        $"{it}," +
+                        $"{sumMeasTheta.ToString("F6", CultureInfo.InvariantCulture)}," +
+                        $"{sumTheoryTheta.ToString("F6", CultureInfo.InvariantCulture)}"
+                    );
+                }
+
+                sw.WriteLine();
+
+                // =======================
+                // 3) 同一 omega：对所有 theta 求和
+                //    => 频率边缘谱 E_omega(iw)
+                // =======================
+                sw.WriteLine("Frequency Marginals: sum over theta for each omega");
+                sw.WriteLine("omegaIndex,meas_sum,theory_sum");
+
+                for (int iw = 0; iw < Nw; iw++)
+                {
+                    double sumMeasOmega = 0.0;
+                    double sumTheoryOmega = 0.0;
+                    for (int it = 0; it < Nt; it++)
+                    {
+                        sumMeasOmega   += E_meas[iw, it];
+                        sumTheoryOmega += E_theory[iw, it];
+                    }
+
+                    sw.WriteLine(
+                        $"{iw}," +
+                        $"{sumMeasOmega.ToString("F6", CultureInfo.InvariantCulture)}," +
+                        $"{sumTheoryOmega.ToString("F6", CultureInfo.InvariantCulture)}"
+                    );
+                }
+
+                sw.WriteLine();
+                sw.WriteLine("End");
+            }
+
+            Debug.Log($"[CSV Export] 频谱结果已保存至: {path}");
+        }
+
+
+
+        /// <summary>
+        /// 对指定 region 做一次 频率–方向 频谱一致性测试
+        /// 统计当前波粒子系统的能量分布 E_meas(ω,θ)，
+        /// 和解析谱离散后给出的 E_theory(ω,θ) 做对比。
+        /// </summary>
+        [ContextMenu("Run Spectrum Consistency Test (Region 0)")]
+        public void RunSpectrumConsistencyTestRegion0()
+        {
+            RunSpectrumConsistencyTest(0);
+        }
+
+        /// <param name="regionIdx">要测试的波粒子区域索引</param>
+        public void RunSpectrumConsistencyTest(int regionIdx)
+        {
+            if (converter == null)
+            {
+                Debug.LogWarning("[SpectrumTest] converter 为空");
+                return;
+            }
+
+            if (regionIdx < 0 || regionIdx >= waveParticleRegions.Count)
+            {
+                Debug.LogWarning($"[SpectrumTest] regionIdx 越界: {regionIdx}");
+                return;
+            }
+
+            // 确保 converter 是初始化过的（和当前 N_omega / N_theta 一致）
+            converter.Initialize(wavesSettings, N_omega, N_theta);
+
+            int Nw = converter._Nomega;
+            int Nt = converter._Ntheta;
+
+            var region = waveParticleRegions[regionIdx];
+
+            // ========= 1) 统计粒子能量 E_meas(ω,θ) =========
+            // 用 height^2 作为能量 proxy，按 (bucketNum, 方向bin) 累加
+            double[,] E_meas = new double[Nw, Nt];
+
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                if (region.buckets == null || iw >= region.buckets.Length) break;
+
+                var arr = region.buckets[iw].AsArray();
+                int len = arr.Length;
+                for (int i = 0; i < len; i++)
+                {
+                    var p = arr[i];
+                    float h = p.height;
+                    if (Mathf.Abs(h) < 1e-7f) continue;
+
+                    // 根据粒子方向找最近的 θ-bin
+                    int it = converter.FindThetaBin(p.direction);
+                    it = Mathf.Clamp(it, 0, Nt - 1);
+
+                    // double e = (double)h * (double)h;  // 能量 ~ 振幅^2
+                    double e = (double)h * (double)h * (double)(p.radius * p.radius); // 考虑粒子面积影响
+
+                    E_meas[iw, it] += e;
+                }
+            }
+
+            // ========= 2) 计算理论 bin 能量 E_theory(ω,θ) =========
+            double[,] E_theory = new double[Nw, Nt];
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                for (int it = 0; it < Nt; it++)
+                {
+                    double e = converter.EvalBinEnergy(iw, it);
+                    E_theory[iw, it] = Math.Max(0.0, e);
+                }
+            }
+
+            // ========= 3) 归一化到概率分布，避免总体能量不同的影响 =========
+            double sumMeas = 0.0, sumTheory = 0.0;
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                for (int it = 0; it < Nt; it++)
+                {
+                    sumMeas   += E_meas[iw, it];
+                    sumTheory += E_theory[iw, it];
+                }
+            }
+
+            if (sumMeas <= 0.0 || sumTheory <= 0.0)
+            {
+                Debug.LogWarning($"[SpectrumTest] 能量总和为 0，sumMeas={sumMeas}, sumTheory={sumTheory}");
+                return;
+            }
+
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                for (int it = 0; it < Nt; it++)
+                {
+                    E_meas[iw, it]   /= sumMeas;
+                    E_theory[iw, it] /= sumTheory;
+                }
+            }
+
+            // ========= 4) 计算几个指标：L1 差、L2 差、相关系数 =========
+            double l1 = 0.0;
+            double l2 = 0.0;
+
+            // 为相关系数准备一维向量
+            int K = Nw * Nt;
+            double meanMeas = 0.0, meanTheory = 0.0;
+
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                for (int it = 0; it < Nt; it++)
+                {
+                    double a = E_meas[iw, it];
+                    double b = E_theory[iw, it];
+
+                    l1 += Math.Abs(a - b);
+                    double diff = a - b;
+                    l2 += diff * diff;
+
+                    meanMeas   += a;
+                    meanTheory += b;
+                }
+            }
+
+            meanMeas   /= K;
+            meanTheory /= K;
+
+            double cov = 0.0, varA = 0.0, varB = 0.0;
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                for (int it = 0; it < Nt; it++)
+                {
+                    double a = E_meas[iw, it];
+                    double b = E_theory[iw, it];
+
+                    double da = a - meanMeas;
+                    double db = b - meanTheory;
+
+                    cov  += da * db;
+                    varA += da * da;
+                    varB += db * db;
+                }
+            }
+
+            double corr = 0.0;
+            if (varA > 1e-12 && varB > 1e-12)
+            {
+                corr = cov / Math.Sqrt(varA * varB);
+            }
+
+            // ========= 5) 打日志 =========
+            Debug.Log(
+                $"[SpectrumTest] region={regionIdx}, Nw={Nw}, Nt={Nt}\n" +
+                $"  L1 difference = {l1:F4}\n" +
+                $"  L2 difference = {Math.Sqrt(l2):F4}\n" +
+                $"  Corr(E_meas, E_theory) = {corr:F4}"
+            );
+
+            // 也可以顺便打印每个频率桶的一维谱对比（把方向求和）
+            for (int iw = 0; iw < Nw; iw++)
+            {
+                double sumMeasW = 0.0;
+                double sumTheoryW = 0.0;
+                for (int it = 0; it < Nt; it++)
+                {
+                    sumMeasW   += E_meas[iw, it];
+                    sumTheoryW += E_theory[iw, it];
+                }
+
+                Debug.Log($"[SpectrumTest] ω-bin {iw}  meas={sumMeasW:F4}  theory={sumTheoryW:F4}");
+            }
+            ExportSpectrumCsv(E_meas, E_theory, converter, wavesSettings, region.size);
+
+        }
+
+        // 放在 WaveParticleSystem 里面任意位置（比如其它 [ContextMenu] 附近）
+        [ContextMenu("Dump Height Histogram (Region 0)")]
+        public void DumpHeightHistogramRegion0()
+        {
+            // 默认做 64 个 bins，你可以改成 128/256
+            EnqueueHeightHistogram(0, 64);
+        }
+
+        public void EnqueueHeightHistogram(int regionIdx, int binCount = 64)
+        {
+            if (regionIdx < 0 || regionIdx >= heightMap.Length || heightMap[regionIdx] == null)
+            {
+                Debug.LogWarning($"[HeightHist] regionIdx={regionIdx} 无效或没有 heightMap");
+                return;
+            }
+
+            var rt = heightMap[regionIdx]; // RFloat 单通道
+            int width = rt.width;
+            int height = rt.height;
+            int nPixels = width * height;
+
+            // 做一次异步读回，避免卡主线程
+            AsyncGPUReadback.Request(rt, 0, request =>
+            {
+                if (request.hasError)
+                {
+                    Debug.LogError($"[HeightHist] GPUReadback 失败, region={regionIdx}");
+                    return;
+                }
+
+                var data = request.GetData<float>(); // 长度 = width * height
+
+                if (data.Length == 0)
+                {
+                    Debug.LogWarning($"[HeightHist] 数据为空, region={regionIdx}");
+                    return;
+                }
+
+                // 1) 基本统计量：min / max / mean
+                double sum = 0.0;
+                float minH = float.PositiveInfinity;
+                float maxH = float.NegativeInfinity;
+
+                for (int i = 0; i < data.Length; i++)
+                {
+                    float v = data[i];
+                    sum += v;
+                    if (v < minH) minH = v;
+                    if (v > maxH) maxH = v;
+                }
+
+                float mean = (float)(sum / nPixels);
+
+                // 避免所有像素高度相同导致 binWidth = 0
+                if (Mathf.Abs(maxH - minH) < 1e-7f)
+                {
+                    Debug.Log($"[HeightHist] region={regionIdx}, 所有像素高度几乎相同: h≈{mean:F6}");
+                    return;
+                }
+
+                // 2) 构建直方图
+                int bins = Mathf.Max(1, binCount);
+                int[] hist = new int[bins];
+
+                float range = maxH - minH;
+                float invBinWidth = bins / range;   // 等价于 1 / binWidth
+
+                for (int i = 0; i < data.Length; i++)
+                {
+                    float v = data[i];
+                    int bin = (int)((v - minH) * invBinWidth);
+                    if (bin < 0) bin = 0;
+                    if (bin >= bins) bin = bins - 1;
+                    hist[bin]++;
+                }
+
+                // 3) 打印统计结果（可以复制到 Excel 画图）
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"[HeightHist] region={regionIdx}");
+                sb.AppendLine($"Pixels = {nPixels}");
+                sb.AppendLine($"Min = {minH:F6}, Max = {maxH:F6}, Mean = {mean:F6}");
+                sb.AppendLine($"Bins = {bins}");
+                sb.AppendLine("binIndex, hMin, hMax, count, probability");
+
+                // 准备导出用的数组
+                float[] binMin = new float[bins];
+                float[] binMax = new float[bins];
+                int[] counts   = hist;   // 直接复用 hist
+
+                for (int b = 0; b < bins; b++)
+                {
+                    float h0 = minH + (range * b) / bins;
+                    float h1 = minH + (range * (b + 1)) / bins;
+                    int count = hist[b];
+                    float p = (float)count / nPixels;
+
+                    // 填导出数组
+                    binMin[b] = h0;
+                    binMax[b] = h1;
+
+                    sb.AppendLine($"{b}, {h0:F6}, {h1:F6}, {count}, {p:F6}");
+                }
+
+                Debug.Log(sb.ToString());
+
+                // 这里就有 binMin / binMax / counts 了，可以导出 CSV
+                ExportHeightHistogramCsv(regionIdx, minH, maxH, bins, binMin, binMax, counts);
+
+            });
+        }
+        public void ExportHeightHistogramCsv(
+            int regionIdx,
+            float minV,
+            float maxV,
+            int bins,
+            float[] binMin,
+            float[] binMax,
+            int[] counts)
+        {
+            string date = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string fileName = $"hist_region{regionIdx}_{bins}bins_{date}.csv";
+            
+            // 放到 Assets/Exports 下面：
+            string dir = Path.Combine(Application.dataPath, "Exports");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, fileName);
+
+            int total = 0;
+            foreach (var c in counts) total += c;
+
+            using (var sw = new StreamWriter(path, false, Encoding.UTF8))
+            {
+                sw.WriteLine("Height Histogram Export");
+                sw.WriteLine($"Region,{regionIdx}");
+                sw.WriteLine($"Bins,{bins}");
+                sw.WriteLine($"Min,{minV}");
+                sw.WriteLine($"Max,{maxV}");
+                sw.WriteLine($"TotalPixels,{total}");
+                sw.WriteLine();
+
+                sw.WriteLine("binIndex,hMin,hMax,count,probability");
+
+                for (int i = 0; i < bins; i++)
+                {
+                    float p = (float)counts[i] / total;
+                    sw.WriteLine(
+                        $"{i},{binMin[i].ToString("F6")},{binMax[i].ToString("F6")},{counts[i]},{p.ToString("F8")}"
+                    );
+                }
+            }
+
+            Debug.Log($"[CSV Export] Height histogram saved -> {path}");
+        }
 
 
         public void GenerateWaveParticles(
