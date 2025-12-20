@@ -297,7 +297,7 @@ public class SolidHydrodynamics : MonoBehaviour
         // drag & torque
         // ------------------------------
         Vector3 F_drag = totalFW + totalFA;
-        F_drag = new Vector3(0f, 0f, 0f);  // 你现在暂时关掉阻力
+        // F_drag = new Vector3(0f, 0f, 0f);  // 暂时关掉阻力
 
         //rb.AddForce(F_drag);
         //rb.AddTorque(totalT);
