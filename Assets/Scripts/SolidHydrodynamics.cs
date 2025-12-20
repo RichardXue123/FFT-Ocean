@@ -158,6 +158,7 @@ public class SolidHydrodynamics : MonoBehaviour
     void OnEnable()
     {
         rb = GetComponent<Rigidbody>();
+        if (rb != null) rb.maxAngularVelocity = 1f;
         
         if (physicalMesh != null)
         {
