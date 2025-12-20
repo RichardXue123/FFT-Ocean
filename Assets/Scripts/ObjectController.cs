@@ -14,8 +14,8 @@ public class SimpleBoatController : MonoBehaviour
     public float brake = 6f;
     [Tooltip("满舵时的目标偏航角速度（度/秒）")]
     public float maxTurnRateDeg = 90f;
-    [Tooltip("转向力度（越大越迅速达成目标转速）")]
-    public float turnGain = 800f;
+    [Tooltip("转向响应速度（角加速度），建议值 5-10")]
+    public float turnResponse = 5f;
     [Tooltip("横向速度抑制（越大越不打滑）")]
     public float lateralGrip = 3f;
 
@@ -92,12 +92,16 @@ public class SimpleBoatController : MonoBehaviour
         Vector3 latForce = -transform.right * (rb.mass * vx * lateralGrip);
         rb.AddForce(latForce, ForceMode.Force);
 
-        // —— 3) 转向：目标偏航角速度（deg/s → rad/s），PD 到目标 ——
+        // —— 3) 转向：目标偏航角速度（deg/s → rad/s），P 控制器到目标 ——
         float yawRateTarget = steerSm * maxTurnRateDeg * Mathf.Deg2Rad;
         float yawRate = rb.angularVelocity.y;
         float yawErr = yawRateTarget - yawRate;
-        float torqueY = turnGain * yawErr - 0.2f * turnGain * yawRate;
-        rb.AddTorque(Vector3.up * torqueY, ForceMode.Force);
+        
+        // 使用 ForceMode.Acceleration，忽略质量影响
+        // 纯 P 控制器：角加速度 = k * (目标速度 - 当前速度)
+        // 这样无论质量多大，转向响应都一致
+        float alphaY = turnResponse * yawErr;
+        rb.AddTorque(Vector3.up * alphaY, ForceMode.Acceleration);
 
         // —— 4) 空格抬升：把竖直速度拉到 upMaxSpeed（受 upAccel 限制） ——
         if (liftSm > 0.001f)

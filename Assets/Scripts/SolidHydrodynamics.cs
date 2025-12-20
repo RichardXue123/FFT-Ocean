@@ -11,6 +11,16 @@ public class SolidHydrodynamics : MonoBehaviour
     public ComputeShader perTriangleCS;
     public ComputeShader reduceCS;
 
+    [Header("Hydrodynamics")]
+    [Tooltip("Water Drag Coefficient. Typical values: 0.05 - 0.2 for streamlined hulls.")]
+    public float CdWater = 0.1f;
+    
+    [Tooltip("Air Drag Coefficient.")]
+    public float CdAir = 0.01f;
+
+    [Tooltip("拖入你生成的简化物理网格。如果不填，默认使用物体身上的渲染网格。")]
+    public Mesh physicalMesh;
+
     public Rigidbody rb;
 
     Mesh mesh;
@@ -50,6 +60,83 @@ public class SolidHydrodynamics : MonoBehaviour
     
     public float smoothedHorzFlux;
 
+    // [Debug] 存储上一帧的力学数据用于 Gizmos 绘制
+    private Vector3 debug_Fb;
+    private Vector3 debug_COB;
+    private Vector3 debug_Fg;
+    private Vector3 debug_Fdrag;
+
+    [Header("Mass Helper")]
+    [Tooltip("Target density (kg/m3) for auto-mass calculation. Water is 1000. Typical boat overall density is 200-600.")]
+    public float targetDensity = 400f;
+
+    [ContextMenu("Auto Calculate Mass")]
+    public void AutoCalculateMass()
+    {
+        Mesh m = physicalMesh;
+        if (m == null)
+        {
+            var mf = GetComponent<MeshFilter>();
+            if (mf != null) m = mf.sharedMesh;
+        }
+
+        if (m == null)
+        {
+            Debug.LogError("[SolidHydro] No mesh found to calculate volume.");
+            return;
+        }
+
+        float rawVolume = CalculateMeshVolume(m);
+        
+        // Apply world scale
+        Vector3 scale = transform.lossyScale;
+        float scaledVolume = rawVolume * Mathf.Abs(scale.x * scale.y * scale.z);
+
+        float suggestedMass = scaledVolume * targetDensity;
+
+        Debug.Log($"[SolidHydro] Mesh Raw Volume: {rawVolume:F3} m^3");
+        Debug.Log($"[SolidHydro] Scaled Volume (World): {scaledVolume:F3} m^3");
+        Debug.Log($"[SolidHydro] Calculated Mass (Density {targetDensity}): {suggestedMass:F1} kg");
+
+        if (rb != null)
+        {
+#if UNITY_EDITOR
+            UnityEditor.Undo.RecordObject(rb, "Auto Set Mass");
+#endif
+            rb.mass = suggestedMass;
+            Debug.Log($"[SolidHydro] Rigidbody mass has been updated to {suggestedMass:F1} kg.");
+        }
+    }
+
+    private float CalculateMeshVolume(Mesh mesh)
+    {
+        Vector3[] vertices = mesh.vertices;
+        int[] triangles = mesh.triangles;
+        double volume = 0.0;
+
+        for (int i = 0; i < triangles.Length; i += 3)
+        {
+            Vector3 p1 = vertices[triangles[i + 0]];
+            Vector3 p2 = vertices[triangles[i + 1]];
+            Vector3 p3 = vertices[triangles[i + 2]];
+
+            // Signed volume of tetrahedron from origin
+            // V = (1/6) * det(p1, p2, p3) = (1/6) * (p1 . (p2 x p3))
+            volume += Vector3.Dot(p1, Vector3.Cross(p2, p3)) / 6.0f;
+        }
+
+        return (float)Mathf.Abs((float)volume);
+    }
+
+    [Header("Debug")]
+    public bool showDebugGizmos = true;
+    public Color colorSubmerged = new Color(0, 1, 1, 0.3f); // 浅蓝
+    public Color colorSurface = new Color(1, 0, 0, 0.3f);   // 浅红
+
+    // Debug data
+    Vector4[] debugVolumeData;
+    Vector3[] debugVertices;
+    int[] debugTriangles;
 
     // Simple substitute for HLSL uint3
     struct uint3
@@ -68,19 +155,36 @@ public class SolidHydrodynamics : MonoBehaviour
 
     const int REDUCE_SIZE = 64;
 
-    void Start()
+    void OnEnable()
     {
-        rb   = GetComponent<Rigidbody>();
-        mesh = GetComponent<MeshFilter>().sharedMesh;
+        rb = GetComponent<Rigidbody>();
+        
+        if (physicalMesh != null)
+        {
+            mesh = physicalMesh;
+        }
+        else
+        {
+            var mf = GetComponent<MeshFilter>();
+            if (mf != null) mesh = mf.sharedMesh;
+        }
+
+        if (mesh == null)
+        {
+            Debug.LogError("[SolidHydro] No mesh found! Assign a Physical Mesh or add a MeshFilter.");
+            return;
+        }
 
         triCount = (uint)mesh.triangles.Length / 3;
-        Debug.Log($"[SolidHydro] Mesh has {triCount} triangles.");
+        Debug.Log($"[SolidHydro] Using mesh: {mesh.name}, Triangles: {triCount}");
 
         if (triCount == 0)
         {
             Debug.LogWarning("[SolidHydro] triCount == 0, component will do nothing.");
             return;
         }
+
+        ReleaseBuffers();
 
         // --- triangle buffer ---
         triBuffer = new ComputeBuffer((int)triCount, sizeof(uint) * 3);
@@ -114,9 +218,22 @@ public class SolidHydrodynamics : MonoBehaviour
         // 新增：体积通量 reduction 输出
         partialVertFlux   = new ComputeBuffer(REDUCE_SIZE, sizeof(float));
         partialHorzFlux   = new ComputeBuffer(REDUCE_SIZE, sizeof(float));
+
+        // Initialize debug arrays
+        if (triCount > 0)
+        {
+            debugVolumeData = new Vector4[triCount];
+            debugVertices = mesh.vertices;
+            debugTriangles = mesh.triangles;
+        }
     }
 
-    void OnDestroy()
+    void OnDisable()
+    {
+        ReleaseBuffers();
+    }
+
+    void ReleaseBuffers()
     {
         triBuffer?.Dispose();
         vertBuffer?.Dispose();
@@ -136,6 +253,21 @@ public class SolidHydrodynamics : MonoBehaviour
 
         partialVertFlux?.Dispose();
         partialHorzFlux?.Dispose();
+
+        triBuffer = null;
+        vertBuffer = null;
+        forceWaterBuffer = null;
+        forceAirBuffer = null;
+        torqueBuffer = null;
+        volumeBuffer = null;
+        vertFluxBuffer = null;
+        horzFluxBuffer = null;
+        partialForceWater = null;
+        partialForceAir = null;
+        partialTorque = null;
+        partialVolume = null;
+        partialVertFlux = null;
+        partialHorzFlux = null;
     }
 
     /// <summary>
@@ -204,6 +336,13 @@ public class SolidHydrodynamics : MonoBehaviour
         // ------------------------------
         uint groups = (triCount + 63) / 64;
         perTriangleCS.Dispatch(kernel, (int)groups, 1, 1);
+
+#if UNITY_EDITOR
+        if (showDebugGizmos && volumeBuffer != null && debugVolumeData != null)
+        {
+            volumeBuffer.GetData(debugVolumeData);
+        }
+#endif
 
         // ------------------------------
         // reduction
@@ -297,19 +436,113 @@ public class SolidHydrodynamics : MonoBehaviour
         // drag & torque
         // ------------------------------
         Vector3 F_drag = totalFW + totalFA;
-        // F_drag = new Vector3(0f, 0f, 0f);  // 暂时关掉阻力
-
-        //rb.AddForce(F_drag);
-        //rb.AddTorque(totalT);
+        
+        // [Debug Mode] 启用阻力
+        rb.AddForce(F_drag);
+        rb.AddTorque(totalT);
 
         // debug: 分解输出
         Vector3 Fg   = rb.mass * Physics.gravity;
         Vector3 F_net = Fb + F_drag + Fg;
 
-        Debug.Log(
-            $"[SolidHydro] volSum={volSum}, " +
-            $"Fb={Fb}, F_water={totalFW}, F_air={totalFA}, Fg={Fg}, F_net={F_net}, " +
-            $"COB={COB}, Q_vert={totalVertFlux}, Q_horz={totalHorzFlux}"
-        );
+        // 存储数据给 OnDrawGizmos 使用
+        debug_Fb = Fb;
+        debug_COB = COB;
+        debug_Fg = Fg;
+        debug_Fdrag = F_drag;
+
+        // 只有在开启 Debug Gizmos 时才打印详细日志，避免刷屏
+        if (showDebugGizmos)
+        {
+            Debug.Log(
+                $"[SolidHydro] Force Analysis:\n" +
+                $"  Buoyancy (Fb): {Fb} (Mag: {Fb.magnitude:F1})\n" +
+                $"  Drag (Fd):     {F_drag} (Mag: {F_drag.magnitude:F1})\n" +
+                $"  Gravity (Fg):  {Fg} (Mag: {Fg.magnitude:F1})\n" +
+                $"  Submerged Vol: {volSum:F3} m^3"
+            );
+        }
+    }
+
+    void OnDrawGizmos()
+    {
+        if (!showDebugGizmos) return;
+
+        // 1. 画出浮力和重力的箭头
+        // 使用存储的上一帧数据
+        float arrowScale = 0.0005f; // 力的缩放比例，根据力的大小调整
+        float headSize = 0.5f;
+        float pointSize = 0.2f; // 作用力点的大小
+
+        // 重力：红色箭头，从重心向下
+        if (rb != null)
+        {
+            Vector3 com = rb.worldCenterOfMass;
+            
+            // 重力点
+            Gizmos.color = Color.red;
+            Gizmos.DrawSphere(com, pointSize);
+            DrawArrow(com, debug_Fg * arrowScale, Color.red, headSize);
+
+            // 阻力：青色箭头，从重心出发（简化显示）
+            if (debug_Fdrag.magnitude > 0.1f)
+            {
+                Gizmos.color = Color.cyan;
+                // 稍微错开一点或者重叠显示
+                DrawArrow(com, debug_Fdrag * arrowScale, Color.cyan, headSize);
+            }
+        }
+
+        // 浮力：绿色箭头，从浮心向上
+        if (debug_Fb.magnitude > 0.1f)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawSphere(debug_COB, pointSize);
+            DrawArrow(debug_COB, debug_Fb * arrowScale, Color.green, headSize);
+        }
+
+        if (debugVolumeData == null || debugVertices == null || debugTriangles == null) return;
+
+        Gizmos.matrix = transform.localToWorldMatrix;
+
+        for (int i = 0; i < triCount; i++)
+        {
+            // w component holds the submerged volume
+            bool isSubmerged = debugVolumeData[i].w > 1e-5f;
+
+            Gizmos.color = isSubmerged ? colorSubmerged : colorSurface;
+
+            int i0 = debugTriangles[i * 3 + 0];
+            int i1 = debugTriangles[i * 3 + 1];
+            int i2 = debugTriangles[i * 3 + 2];
+
+            Vector3 v0 = debugVertices[i0];
+            Vector3 v1 = debugVertices[i1];
+            Vector3 v2 = debugVertices[i2];
+
+            Gizmos.DrawLine(v0, v1);
+            Gizmos.DrawLine(v1, v2);
+            Gizmos.DrawLine(v2, v0);
+            
+            // Optional: Draw a small cross at the center to make it more visible
+            // Vector3 center = (v0 + v1 + v2) / 3.0f;
+            // Gizmos.DrawRay(center, Vector3.up * 0.05f);
+        }
+    }
+
+    // 简单的画箭头辅助函数
+    void DrawArrow(Vector3 pos, Vector3 direction, Color color, float headSize = 0.25f)
+    {
+        if (direction == Vector3.zero) return;
+        
+        Gizmos.color = color;
+        Gizmos.DrawRay(pos, direction);
+        
+        Vector3 right = Quaternion.LookRotation(direction) * Quaternion.Euler(0, 180 + 20, 0) * new Vector3(0, 0, 1);
+        Vector3 left = Quaternion.LookRotation(direction) * Quaternion.Euler(0, 180 - 20, 0) * new Vector3(0, 0, 1);
+        
+        Vector3 endPos = pos + direction;
+        Gizmos.DrawRay(endPos, right * headSize);
+        Gizmos.DrawRay(endPos, left * headSize);
     }
 }

@@ -452,9 +452,9 @@ namespace Assets.Scripts
                     solid.ComputeForces(
                         heightTex,
                         waterDensity: 1000f,
-                        cdWater: 1.0f,     // 先只看风阻，水下阻力关掉
+                        cdWater: solid.CdWater,
                         airDensity: 1.2f,
-                        cdAir: 1.0f,       // 视船体形状调
+                        cdAir: solid.CdAir,
                         windVelocity: windVel,
                         resolution,         // height map resolution
                         waveParticleRegions[id].size.x,      // regionSize（你区域是正方形，用 x 就行）
@@ -896,22 +896,65 @@ namespace Assets.Scripts
 
         void OnDestroy()
         {
+            // 释放 RenderTexture 数组
+            ReleaseRenderTextures(heightSlicesInt);
+            ReleaseRenderTextures(heightSlicesFloat);
+            ReleaseRenderTextures(heightSlicesTmp);
+            ReleaseRenderTextures(heightMap);
+            ReleaseRenderTextures(normalMap);
+
+            // 释放单个 RenderTexture
+            if (_slicePreviewRT != null)
+            {
+                _slicePreviewRT.Release();
+                _slicePreviewRT = null;
+            }
+
+            // 释放 ComputeBuffer 数组
             if (particleBuffersPerBucket != null)
             {
-                for (int r = 0; r < particleBuffersPerBucket.Length; r++)
-                    if (particleBuffersPerBucket[r] != null)
-                        for (int b = 0; b < particleBuffersPerBucket[r].Length; b++)
-                            particleBuffersPerBucket[r][b]?.Dispose();
+                foreach (var buffers in particleBuffersPerBucket)
+                {
+                    if (buffers != null)
+                    {
+                        foreach (var buffer in buffers)
+                        {
+                            buffer?.Release();
+                        }
+                    }
+                }
+                particleBuffersPerBucket = null;
             }
 
             if (particleVelBuffersPerBucket != null)
             {
-                for (int r = 0; r < particleVelBuffersPerBucket.Length; r++)
-                    if (particleVelBuffersPerBucket[r] != null)
-                        for (int b = 0; b < particleVelBuffersPerBucket[r].Length; b++)
-                            particleVelBuffersPerBucket[r][b]?.Dispose();
+                foreach (var buffers in particleVelBuffersPerBucket)
+                {
+                    if (buffers != null)
+                    {
+                        foreach (var buffer in buffers)
+                        {
+                            buffer?.Release();
+                        }
+                    }
+                }
+                particleVelBuffersPerBucket = null;
             }
-            radiiBuf?.Dispose();
+
+            // 释放单个 ComputeBuffer
+            radiiBuf?.Release();
+            radiiBuf = null;
+
+            // 释放 WaveParticleRegion 的 NativeList (buckets/scratch)
+            if (waveParticleRegions != null)
+            {
+                foreach (var region in waveParticleRegions)
+                {
+                    region?.Dispose();
+                }
+            }
+
+            Debug.Log("[WaveParticleSystem] Resources cleaned up.");
         }
 
 
@@ -1649,6 +1692,21 @@ namespace Assets.Scripts
                 }
             }
         }
+
+        void ReleaseRenderTextures(RenderTexture[] textures)
+        {
+            if (textures != null)
+            {
+                foreach (var rt in textures)
+                {
+                    if (rt != null)
+                    {
+                        rt.Release();
+                    }
+                }
+            }
+        }
+
 
 
     }
