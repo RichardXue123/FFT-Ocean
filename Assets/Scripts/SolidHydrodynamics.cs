@@ -488,8 +488,9 @@ public class SolidHydrodynamics : MonoBehaviour
         }
 
         // 启用阻力
-        // rb.AddForce(F_drag);
-        rb.AddForceAtPosition(F_drag, COB);
+        // 将阻力施加在重心 (COM) 而不是浮心 (COB)，避免产生巨大的抗转向力矩
+        rb.AddForce(F_drag);
+        // rb.AddForceAtPosition(F_drag, COB);
         // rb.AddTorque(totalT);
 
         // debug: 分解输出

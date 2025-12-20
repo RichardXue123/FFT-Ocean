@@ -1750,7 +1750,8 @@ namespace Assets.Scripts
                     Vector3 offsetDir = new Vector3(normal.x, 0, normal.z).normalized;
                     if (offsetDir == Vector3.zero) offsetDir = Vector3.up; // fallback
 
-                    Vector3 spawnPos = pos + offsetDir * (wakeTargetRadius * 0.5f);
+                    // 增加偏移距离，防止粒子生成在船体内部或太贴近表面
+                    Vector3 spawnPos = pos + offsetDir * (wakeTargetRadius * 1.5f);
 
                     // 粒子速度：取船体在该点的速度的水平分量
                     // 简单起见，可以直接用船体整体速度，或者更精确点用刚体点速度
@@ -1834,7 +1835,7 @@ namespace Assets.Scripts
                 }
             }
 
-            if (fixedFrameCnt % 60 == 0)
+            // if (fixedFrameCnt % 60 == 0)
             {
                 Debug.Log($"[WaveParticleSystem] Wake Debug: MaxFlux={maxFlux:F4}, GeneratedParticles={totalWakeParticles}");
             }
