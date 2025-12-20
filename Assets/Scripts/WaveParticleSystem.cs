@@ -80,6 +80,12 @@ namespace Assets.Scripts
         //Vector4[] particleData;
         //Vector2[] particleVelData;
 
+        [Header("Wake Generation")]
+        [SerializeField] public float wakeGenerationScale = 1.0f; // 调节生成波浪的强度
+        [SerializeField] public float wakeParticleLife = 5.0f;    // 尾迹粒子寿命
+        private int wakeTargetBucketIdx = -1;                     // 尾迹粒子放入哪个 bucket
+        private float wakeTargetRadius = 1.0f;                    // 尾迹粒子半径
+
         [Header("Debug")]
         float curTime;
         float prevTime;
@@ -259,6 +265,18 @@ namespace Assets.Scripts
             radiiBuf = new ComputeBuffer(N_omega, sizeof(float));
             radiiBuf.SetData(bucketRadii);
 
+            // 寻找能量最高的 bucket 作为尾迹生成的目标 bucket
+            // 简单策略：找半径适中的，或者直接找 converter 中能量最大的
+            // 这里暂时取中间偏大的一个 bucket，或者你可以遍历 spectrum 找峰值
+            // 假设 converter._radii 是按频率从低到高排列（半径从大到小）
+            // 我们选一个中等波长的 bucket，例如 N_omega / 2
+            if (N_omega > 0)
+            {
+                wakeTargetBucketIdx = N_omega / 2; 
+                wakeTargetRadius = bucketRadii[wakeTargetBucketIdx];
+                Debug.Log($"[WaveParticleSystem] Wake Target Bucket: {wakeTargetBucketIdx}, Radius: {wakeTargetRadius:F2}m");
+            }
+
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
 
             //测试用
@@ -295,6 +313,9 @@ namespace Assets.Scripts
             particleCnt = 0;
 
             UpdateRegionCentersFromSolids(Time.deltaTime);
+
+            // ---- 新增：处理固体尾迹生成 ----
+            ProcessSolidWakes(dt);
 
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
             oceanMaterial.SetFloat("_BlendRange", blendRange);
@@ -1690,6 +1711,132 @@ namespace Assets.Scripts
                     region.center.x = newCenterXZ.x;
                     region.center.y = newCenterXZ.y;
                 }
+            }
+        }
+
+        // 处理所有船只的尾迹生成
+        void ProcessSolidWakes(float dt)
+        {
+            if (solids == null || wakeTargetBucketIdx < 0) return;
+
+            int totalWakeParticles = 0;
+            float maxFlux = 0f;
+
+            foreach (var solid in solids)
+            {
+                if (solid == null || solid.waveGenDataArray == null) continue;
+
+                // 遍历回读回来的波浪生成数据
+                // 注意：这里是遍历所有三角形，如果面片数很多，可能会有性能压力
+                // 建议在 Compute Shader 中做一次 Reduce 或者 AppendBuffer 筛选
+                // 但按你的要求，先直接遍历
+                for (int i = 0; i < solid.waveGenDataArray.Length; i++)
+                {
+                    var data = solid.waveGenDataArray[i];
+                    float flux = data.flux; // m^3/s
+
+                    if (Mathf.Abs(flux) > maxFlux) maxFlux = Mathf.Abs(flux);
+
+                    // 阈值过滤：忽略微小的通量
+                    if (Mathf.Abs(flux) < 1e-4f) continue;
+
+                    // 计算本次时间步长内的排水体积
+                    float volume = flux * dt * wakeGenerationScale;
+
+                    // 粒子位置：面片中心 + 沿法线水平分量偏移 0.5 * 半径
+                    // 这样可以把粒子推离船体表面一点，避免穿模或在船内部生成
+                    Vector3 pos = data.position;
+                    Vector3 normal = data.normal;
+                    Vector3 offsetDir = new Vector3(normal.x, 0, normal.z).normalized;
+                    if (offsetDir == Vector3.zero) offsetDir = Vector3.up; // fallback
+
+                    Vector3 spawnPos = pos + offsetDir * (wakeTargetRadius * 0.5f);
+
+                    // 粒子速度：取船体在该点的速度的水平分量
+                    // 简单起见，可以直接用船体整体速度，或者更精确点用刚体点速度
+                    // 这里我们假设粒子生成后就随波逐流，初始速度设为 0 或者给一点沿法线的推力
+                    // WaveParticle 的 velocity 属性通常用于多普勒效应或平流，这里先给 0
+                    Vector2 velocity = Vector2.zero; 
+                    if (solid.rb != null)
+                    {
+                        Vector3 ptVel = solid.rb.GetPointVelocity(pos);
+                        velocity = new Vector2(ptVel.x, ptVel.z) * 0.2f; // 继承一点速度
+                    }
+
+                    // 振幅计算
+                    // 假设波形是圆柱形或高斯形，体积 V ≈ Area * Amplitude
+                    // Area ≈ π * r^2
+                    // Amplitude ≈ V / (π * r^2)
+                    // 注意：这里生成的粒子是“一次性”的脉冲，还是持续存在的？
+                    // WaveParticle 是持续存在的振荡子。
+                    // 如果我们每帧都生成，那么这些粒子应该迅速衰减，或者我们只在通量变化剧烈时生成。
+                    // 现在的逻辑是：每帧的通量都转化为了一个新的波粒子。
+                    // 这相当于把连续的流体推挤离散化为一串粒子。
+                    
+                    float r = wakeTargetRadius;
+                    float area = Mathf.PI * r * r;
+                    float amplitude = volume / area;
+
+                    // 限制最大振幅，防止爆炸
+                    amplitude = Mathf.Clamp(amplitude, -2f, 2f);
+
+                    // 创建粒子
+                    WaveParticle p = new WaveParticle();
+                    p.position = new Unity.Mathematics.float2(spawnPos.x, spawnPos.z);
+                    
+                    // 传播方向：沿法线水平分量
+                    p.direction = new Unity.Mathematics.float2(offsetDir.x, offsetDir.z);
+                    
+                    // 高度（振幅）
+                    p.height = amplitude;
+                    
+                    // 半径
+                    p.radius = r;
+                    
+                    // 物理参数计算
+                    // 我们在 Start 里记录了 wakeTargetBucketIdx，可以从 converter 获取准确值
+                    if (converter != null && converter._omegas != null && wakeTargetBucketIdx < converter._omegas.Length)
+                    {
+                        p.omega = converter._omegas[wakeTargetBucketIdx];
+                        // k = omega^2 / g
+                        p.k = (p.omega * p.omega) / wavesSettings.g;
+                        // 群速度 Cg = 0.5 * C = 0.5 * (g / omega)
+                        p.speed = 0.5f * wavesSettings.g / p.omega;
+                    }
+                    else
+                    {
+                        // Fallback
+                        p.k = 1.0f / r;
+                        p.omega = Mathf.Sqrt(9.81f * p.k);
+                        p.speed = 0.5f * 9.81f / p.omega;
+                    }
+
+                    p.bucketNum = wakeTargetBucketIdx;
+                    
+                    // 将粒子加入到最近的 Region
+                    // 简单起见，加入到 region 0，或者遍历所有 region 找包含该点的
+                    for (int rIdx = 0; rIdx < waveParticleRegions.Count; rIdx++)
+                    {
+                        var region = waveParticleRegions[rIdx];
+                        if (region.Contains(p.position, p.radius))
+                        {
+                            // 找到对应的 bucket
+                            // 我们之前选定了 wakeTargetBucketIdx
+                            // 确保 bucket 已经初始化
+                            if (region.buckets != null && region.buckets.Length > wakeTargetBucketIdx)
+                            {
+                                region.buckets[wakeTargetBucketIdx].Add(p);
+                                totalWakeParticles++;
+                            }
+                            break; // 只加到一个 region
+                        }
+                    }
+                }
+            }
+
+            if (fixedFrameCnt % 60 == 0)
+            {
+                Debug.Log($"[WaveParticleSystem] Wake Debug: MaxFlux={maxFlux:F4}, GeneratedParticles={totalWakeParticles}");
             }
         }
 

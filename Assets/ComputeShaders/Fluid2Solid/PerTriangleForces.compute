@@ -19,6 +19,14 @@ RWStructuredBuffer<float4> _OutVolume;   // xyz = centerSub * volume, w = volume
 RWStructuredBuffer<float> _OutVertFlux;  // y 方向体积通量（压水 / 抽水）
 RWStructuredBuffer<float> _OutHorzFlux;  // xz 方向体积通量（水平扫水，用于 Kelvin 尾迹）
 
+struct WaveGenData
+{
+    float3 position; // 水下中心点 (WS)
+    float3 normal;   // 面法线 (WS)
+    float  flux;     // 垂直通量 (m^3/s)
+};
+RWStructuredBuffer<WaveGenData> _OutWaveGenData;
+
 // ---------------------------------------------
 // Inputs / Params
 // ---------------------------------------------
@@ -380,4 +388,11 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
     // 固体 → 流体：每个三角形的排水“源项”
     _OutVertFlux[id]   = vertFlux;
     _OutHorzFlux[id]   = horzFlux;
+
+    // 填充波浪生成数据
+    WaveGenData wd;
+    wd.position = centerSub; // 如果完全在水上，这里是0
+    wd.normal   = normalize(n_full);
+    wd.flux     = vertFlux;
+    _OutWaveGenData[id] = wd;
 }

@@ -56,6 +56,8 @@ public class SolidHydrodynamics : MonoBehaviour
     public float totalVertFlux;   // ∑ 三角形 vertFlux，单位 m^3/s
     public float totalHorzFlux;   // ∑ 三角形 horzFlux，单位 m^3/s
 
+    public float totalVolume;     // 船体总体积，用于限制最大浮力
+
     public float smoothedVertFlux;
     
     public float smoothedHorzFlux;
@@ -153,6 +155,18 @@ public class SolidHydrodynamics : MonoBehaviour
         }
     }
 
+    // 对应 Compute Shader 中的 WaveGenData
+    public struct WaveGenData
+    {
+        public Vector3 position; // 水下中心点 (WS)
+        public Vector3 normal;   // 面法线 (WS)
+        public float flux;       // 垂直通量 (m^3/s)
+    }
+
+    // 存储回读的波浪生成数据
+    public WaveGenData[] waveGenDataArray;
+    ComputeBuffer waveGenDataBuffer;
+
     const int REDUCE_SIZE = 64;
 
     void OnEnable()
@@ -176,8 +190,13 @@ public class SolidHydrodynamics : MonoBehaviour
             return;
         }
 
+        // Calculate total volume for buoyancy clamping
+        float rawVolume = CalculateMeshVolume(mesh);
+        Vector3 scale = transform.lossyScale;
+        totalVolume = rawVolume * Mathf.Abs(scale.x * scale.y * scale.z);
+
         triCount = (uint)mesh.triangles.Length / 3;
-        Debug.Log($"[SolidHydro] Using mesh: {mesh.name}, Triangles: {triCount}");
+        Debug.Log($"[SolidHydro] Using mesh: {mesh.name}, Triangles: {triCount}, TotalVolume: {totalVolume:F3}");
 
         if (triCount == 0)
         {
@@ -209,6 +228,10 @@ public class SolidHydrodynamics : MonoBehaviour
         // 新增：体积通量 per-triangle
         vertFluxBuffer   = new ComputeBuffer((int)triCount, sizeof(float));
         horzFluxBuffer   = new ComputeBuffer((int)triCount, sizeof(float));
+
+        // 新增：WaveGenData buffer
+        waveGenDataBuffer = new ComputeBuffer((int)triCount, sizeof(float) * 7); // float3 pos, float3 normal, float flux
+        waveGenDataArray = new WaveGenData[triCount];
 
         // --- reduction outputs ---
         partialForceWater = new ComputeBuffer(REDUCE_SIZE, sizeof(float) * 3);
@@ -246,6 +269,7 @@ public class SolidHydrodynamics : MonoBehaviour
 
         vertFluxBuffer?.Dispose();
         horzFluxBuffer?.Dispose();
+        waveGenDataBuffer?.Dispose();
 
         partialForceWater?.Dispose();
         partialForceAir?.Dispose();
@@ -263,6 +287,7 @@ public class SolidHydrodynamics : MonoBehaviour
         volumeBuffer = null;
         vertFluxBuffer = null;
         horzFluxBuffer = null;
+        waveGenDataBuffer = null;
         partialForceWater = null;
         partialForceAir = null;
         partialTorque = null;
@@ -329,6 +354,7 @@ public class SolidHydrodynamics : MonoBehaviour
         // 新增：Solid → Fluid 通量输出
         perTriangleCS.SetBuffer(kernel, "_OutVertFlux",   vertFluxBuffer);
         perTriangleCS.SetBuffer(kernel, "_OutHorzFlux",   horzFluxBuffer);
+        perTriangleCS.SetBuffer(kernel, "_OutWaveGenData", waveGenDataBuffer);
 
         perTriangleCS.SetTexture(kernel, "_HeightMap", heightMap);
 
@@ -337,6 +363,12 @@ public class SolidHydrodynamics : MonoBehaviour
         // ------------------------------
         uint groups = (triCount + 63) / 64;
         perTriangleCS.Dispatch(kernel, (int)groups, 1, 1);
+
+        // 回读波浪生成数据 (注意：这会阻塞 CPU，如果面片数很多需要优化)
+        if (waveGenDataBuffer != null && waveGenDataArray != null)
+        {
+            waveGenDataBuffer.GetData(waveGenDataArray);
+        }
 
 #if UNITY_EDITOR
         if (showDebugGizmos && volumeBuffer != null && debugVolumeData != null)
@@ -430,6 +462,14 @@ public class SolidHydrodynamics : MonoBehaviour
         {
             COB = volWeightedSum / volSum;
             Fb  = Vector3.up * waterDensity * -Physics.gravity.y * volSum;
+
+            // Limit Buoyancy: Max Buoyancy = Total Volume * Water Density * Gravity
+            float maxBuoyancy = totalVolume * waterDensity * -Physics.gravity.y;
+            if (Fb.magnitude > maxBuoyancy)
+            {
+                Fb = Fb.normalized * maxBuoyancy;
+            }
+
             rb.AddForceAtPosition(Fb, COB);
         }
 
@@ -440,6 +480,13 @@ public class SolidHydrodynamics : MonoBehaviour
 
         Vector3 F_drag = totalFW;
         
+        // Limit Drag: Max Drag = 1 * Weight (Mass * Gravity)
+        float maxDrag = rb.mass * -Physics.gravity.y;
+        if (F_drag.magnitude > maxDrag)
+        {
+            F_drag = F_drag.normalized * maxDrag;
+        }
+
         // 启用阻力
         // rb.AddForce(F_drag);
         rb.AddForceAtPosition(F_drag, COB);
