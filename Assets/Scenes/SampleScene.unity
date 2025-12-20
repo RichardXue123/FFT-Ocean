@@ -1440,7 +1440,7 @@ Rigidbody:
   serializedVersion: 4
   m_Mass: 4756.1475
   m_Drag: 0
-  m_AngularDrag: 0
+  m_AngularDrag: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
   m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
@@ -1515,6 +1515,8 @@ MonoBehaviour:
   regionId: 0
   perTriangleCS: {fileID: 7200000, guid: c9e2fdfd2fab64b4991faf7588a14a8b, type: 3}
   reduceCS: {fileID: 7200000, guid: 1fd4d78fef819de418ea75388c57a48b, type: 3}
+  CdWater: 0.1
+  CdAir: 0.01
   physicalMesh: {fileID: 4300000, guid: ff6d505da467a054d8ae3f90102f18a1, type: 2}
   rb: {fileID: 1336822121}
   totalVertFlux: 0

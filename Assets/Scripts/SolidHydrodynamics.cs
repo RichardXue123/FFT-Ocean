@@ -435,11 +435,14 @@ public class SolidHydrodynamics : MonoBehaviour
         // ------------------------------
         // drag & torque
         // ------------------------------
-        Vector3 F_drag = totalFW + totalFA;
+        // Vector3 F_drag = totalFW + totalFA;
+
+        Vector3 F_drag = totalFW;
         
-        // [Debug Mode] 启用阻力
-        rb.AddForce(F_drag);
-        rb.AddTorque(totalT);
+        // 启用阻力
+        // rb.AddForce(F_drag);
+        rb.AddForceAtPosition(F_drag, COB);
+        // rb.AddTorque(totalT);
 
         // debug: 分解输出
         Vector3 Fg   = rb.mass * Physics.gravity;
@@ -483,14 +486,14 @@ public class SolidHydrodynamics : MonoBehaviour
             Gizmos.color = Color.red;
             Gizmos.DrawSphere(com, pointSize);
             DrawArrow(com, debug_Fg * arrowScale, Color.red, headSize);
+        }
 
-            // 阻力：青色箭头，从重心出发（简化显示）
-            if (debug_Fdrag.magnitude > 0.1f)
-            {
-                Gizmos.color = Color.cyan;
-                // 稍微错开一点或者重叠显示
-                DrawArrow(com, debug_Fdrag * arrowScale, Color.cyan, headSize);
-            }
+        // 阻力：青色箭头，从浮心出发（与浮力作用点一致）
+        if (debug_Fdrag.magnitude > 0.1f)
+        {
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawSphere(debug_COB, pointSize);
+            DrawArrow(debug_COB, debug_Fdrag * arrowScale, Color.cyan, headSize);
         }
 
         // 浮力：绿色箭头，从浮心向上

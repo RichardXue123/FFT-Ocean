@@ -276,7 +276,7 @@ namespace Assets.Scripts
             }
 
         }
-        public void Update()
+        public void FixedUpdate()
         {
             if (fixedFrameCnt == 0)
             {
@@ -462,25 +462,25 @@ namespace Assets.Scripts
                     );
 
                     // solid 排水量
-                    float Q_vert = solid.totalVertFlux;
-                    float Q_horz = solid.totalHorzFlux;
+                    // float Q_vert = solid.totalVertFlux;
+                    // float Q_horz = solid.totalHorzFlux;
 
-                    Q_vert = solid.smoothedVertFlux;
-                    Q_horz = solid.smoothedHorzFlux;
+                    // Q_vert = solid.smoothedVertFlux;
+                    // Q_horz = solid.smoothedHorzFlux;
 
-                    // 取刚体在水面上的投影位置
-                    var rb = solid.rb;
-                    Vector2 posXZ = new Vector2(rb.worldCenterOfMass.x, rb.worldCenterOfMass.z);
+                    // // 取刚体在水面上的投影位置
+                    // var rb = solid.rb;
+                    // Vector2 posXZ = new Vector2(rb.worldCenterOfMass.x, rb.worldCenterOfMass.z);
 
-                    GenerateWaveParticles(
-                        solid.regionId,
-                        posXZ,
-                        Q_vert,
-                        Q_horz,
-                        rb.velocity,
-                        Time.deltaTime,
-                        dirSampleCount: 32   // 可自己调
-                    );
+                    // GenerateWaveParticles(
+                    //     solid.regionId,
+                    //     posXZ,
+                    //     Q_vert,
+                    //     Q_horz,
+                    //     rb.velocity,
+                    //     Time.deltaTime,
+                    //     dirSampleCount: 32   // 可自己调
+                    // );
                 }
 
                 //SyncRegionTexturesToCPU(r);
