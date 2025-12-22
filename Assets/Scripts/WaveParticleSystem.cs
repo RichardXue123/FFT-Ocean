@@ -294,7 +294,7 @@ namespace Assets.Scripts
             }
 
         }
-        public void FixedUpdate()
+        public void Update()
         {
             if (fixedFrameCnt == 0)
             {
@@ -336,7 +336,8 @@ namespace Assets.Scripts
                     regionSize: region.size,
                     N_omega: N_omega,
                     N_theta: N_theta,
-                    deltaTime: dt))
+                    deltaTime: dt,
+                    allocator: Allocator.TempJob))
                 {
                     AddEdgeParticlesToBuckets(r, edgeParticles.AsArray());
                 }
@@ -915,33 +916,45 @@ namespace Assets.Scripts
         }
 
 
+        void OnDisable()
+        {
+            CleanupResources();
+        }
+
         void OnDestroy()
         {
-            // 释放 RenderTexture 数组
-            ReleaseRenderTextures(heightSlicesInt);
-            ReleaseRenderTextures(heightSlicesFloat);
-            ReleaseRenderTextures(heightSlicesTmp);
-            ReleaseRenderTextures(heightMap);
-            ReleaseRenderTextures(normalMap);
+            CleanupResources();
+        }
 
-            // 释放单个 RenderTexture
+        void CleanupResources()
+        {
+            // ---- RenderTextures ----
+            ReleaseRenderTextures(ref heightSlicesInt);
+            ReleaseRenderTextures(ref heightSlicesFloat);
+            ReleaseRenderTextures(ref heightSlicesTmp);
+            ReleaseRenderTextures(ref heightMap);
+            ReleaseRenderTextures(ref normalMap);
+
             if (_slicePreviewRT != null)
             {
                 _slicePreviewRT.Release();
+                Destroy(_slicePreviewRT);
                 _slicePreviewRT = null;
             }
 
-            // 释放 ComputeBuffer 数组
+            // ---- Texture2D (Unity Object，需要 Destroy) ----
+            ReleaseTexture2Ds(ref heightMapT2D);
+            ReleaseTexture2Ds(ref normalMapT2D);
+
+            // ---- ComputeBuffers ----
             if (particleBuffersPerBucket != null)
             {
                 foreach (var buffers in particleBuffersPerBucket)
                 {
-                    if (buffers != null)
+                    if (buffers == null) continue;
+                    foreach (var buffer in buffers)
                     {
-                        foreach (var buffer in buffers)
-                        {
-                            buffer?.Release();
-                        }
+                        buffer?.Release();
                     }
                 }
                 particleBuffersPerBucket = null;
@@ -951,22 +964,19 @@ namespace Assets.Scripts
             {
                 foreach (var buffers in particleVelBuffersPerBucket)
                 {
-                    if (buffers != null)
+                    if (buffers == null) continue;
+                    foreach (var buffer in buffers)
                     {
-                        foreach (var buffer in buffers)
-                        {
-                            buffer?.Release();
-                        }
+                        buffer?.Release();
                     }
                 }
                 particleVelBuffersPerBucket = null;
             }
 
-            // 释放单个 ComputeBuffer
             radiiBuf?.Release();
             radiiBuf = null;
 
-            // 释放 WaveParticleRegion 的 NativeList (buckets/scratch)
+            // ---- NativeLists in regions ----
             if (waveParticleRegions != null)
             {
                 foreach (var region in waveParticleRegions)
@@ -1841,18 +1851,33 @@ namespace Assets.Scripts
             }
         }
 
-        void ReleaseRenderTextures(RenderTexture[] textures)
+        void ReleaseRenderTextures(ref RenderTexture[] textures)
         {
-            if (textures != null)
+            if (textures == null) return;
+
+            for (int i = 0; i < textures.Length; i++)
             {
-                foreach (var rt in textures)
-                {
-                    if (rt != null)
-                    {
-                        rt.Release();
-                    }
-                }
+                var rt = textures[i];
+                if (rt == null) continue;
+
+                rt.Release();
+                Destroy(rt);
+                textures[i] = null;
             }
+
+            textures = null;
+        }
+
+        void ReleaseTexture2Ds(ref Texture2D[] textures)
+        {
+            if (textures == null) return;
+            for (int i = 0; i < textures.Length; i++)
+            {
+                if (textures[i] == null) continue;
+                Destroy(textures[i]);
+                textures[i] = null;
+            }
+            textures = null;
         }
 
 
