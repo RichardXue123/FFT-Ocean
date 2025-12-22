@@ -1837,7 +1837,7 @@ namespace Assets.Scripts
 
             // if (fixedFrameCnt % 60 == 0)
             {
-                Debug.Log($"[WaveParticleSystem] Wake Debug: MaxFlux={maxFlux:F4}, GeneratedParticles={totalWakeParticles}");
+                // Debug.Log($"[WaveParticleSystem] Wake Debug: MaxFlux={maxFlux:F4}, GeneratedParticles={totalWakeParticles}");
             }
         }
 

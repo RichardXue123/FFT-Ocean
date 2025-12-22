@@ -8,6 +8,10 @@ public class CameraCaptureOnKey : MonoBehaviour
     [Header("Trigger")]
     public KeyCode hotkey = KeyCode.P;
 
+    [Header("Positioning")]
+    [Tooltip("按下热键时，会把当前绑定物体的 Transform（世界坐标位置+旋转）设置为该 Transform")]
+    public Transform photoSpot;
+
     [Header("Output")]
     public int width = 3840;
     public int height = 2160;
@@ -56,6 +60,18 @@ public class CameraCaptureOnKey : MonoBehaviour
     {
         if (Input.GetKeyDown(hotkey) && !_isBurstRunning)
         {
+            if (photoSpot != null)
+            {
+                var simpleController = GetComponent<UnityTemplateProjects.SimpleCameraController>();
+                if (simpleController != null && simpleController.enabled)
+                {
+                    simpleController.SnapTo(photoSpot);
+                }
+                else
+                {
+                    transform.SetPositionAndRotation(photoSpot.position, photoSpot.rotation);
+                }
+            }
             StartCoroutine(BurstCaptureCoroutine());
         }
     }

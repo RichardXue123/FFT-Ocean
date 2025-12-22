@@ -222,7 +222,7 @@ MonoBehaviour:
   wavesSettings: {fileID: 11400000, guid: a15d9b9d6a919584db82c8af30e854c9, type: 2}
   MAX_REGIONS: 1
   MAX_PARTICLES: 2000000
-  N_omega: 16
+  N_omega: 32
   N_theta: 8
   bucketCounts: 
   bucketRadii: []
@@ -244,7 +244,7 @@ MonoBehaviour:
   useFFTOnly: 0
   oceanMaterial: {fileID: 2100000, guid: 22156cefd2b9a5342867323a00e9de30, type: 2}
   wakeGenerationScale: 1
-  wakeParticleLife: 5
+  wakeParticleLife: 10
 --- !u!1 &232618948
 GameObject:
   m_ObjectHideFlags: 0
@@ -1032,6 +1032,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   hotkey: 112
+  photoSpot: {fileID: 1375697274}
   width: 1920
   height: 1080
   msaa: 1
@@ -1040,8 +1041,8 @@ MonoBehaviour:
   subfolder: Captures
   fileType: 0
   jpgQuality: 100
-  captureCount: 8
-  captureInterval: 0.2
+  captureCount: 3
+  captureInterval: 5
 --- !u!1 &1133885655
 GameObject:
   m_ObjectHideFlags: 0
@@ -1440,10 +1441,10 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1336822120}
   serializedVersion: 4
-  m_Mass: 7134.221
+  m_Mass: 4756.1475
   m_Drag: 0
   m_AngularDrag: 0.05
-  m_CenterOfMass: {x: 0.16, y: 0, z: 0.41}
+  m_CenterOfMass: {x: 0.16, y: -0.4, z: 0.41}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
   m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
   m_IncludeLayers:
@@ -1526,10 +1527,41 @@ MonoBehaviour:
   totalVolume: 0
   smoothedVertFlux: 0
   smoothedHorzFlux: 0
-  targetDensity: 600
-  showDebugGizmos: 1
+  targetDensity: 400
+  showDebugGizmos: 0
   colorSubmerged: {r: 0, g: 1, b: 1, a: 0.3}
   colorSurface: {r: 1, g: 0, b: 0, a: 0.3}
+--- !u!1 &1375697273
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1375697274}
+  m_Layer: 0
+  m_Name: ShotPosition
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1375697274
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1375697273}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.19742766, y: 0.13637915, z: -0.027746644, w: 0.97038823}
+  m_LocalPosition: {x: -2, y: 5, z: -10}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 23, y: 16, z: 0}
 --- !u!1 &1707354933
 GameObject:
   m_ObjectHideFlags: 0
@@ -1865,3 +1897,4 @@ SceneRoots:
   - {fileID: 805559146}
   - {fileID: 2019759772}
   - {fileID: 1336822119}
+  - {fileID: 1375697274}

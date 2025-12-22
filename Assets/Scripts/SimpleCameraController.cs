@@ -76,6 +76,15 @@ namespace UnityTemplateProjects
         [Tooltip("Whether or not to invert our Y axis for mouse input to rotation.")]
         public bool invertY = false;
 
+        public void SnapTo(Transform target)
+        {
+            if (target == null) return;
+
+            transform.SetPositionAndRotation(target.position, target.rotation);
+            m_TargetCameraState.SetFromTransform(transform);
+            m_InterpolatingCameraState.SetFromTransform(transform);
+        }
+
         void OnEnable()
         {
             //GetComponent<Camera>().depthTextureMode |= DepthTextureMode.Depth;
