@@ -86,6 +86,9 @@ namespace Assets.Scripts
         private int wakeTargetBucketIdx = -1;                     // 尾迹粒子放入哪个 bucket
         private float wakeTargetRadius = 1.0f;                    // 尾迹粒子半径
 
+        [Header("Wake Debug")]
+        [SerializeField] bool logWakeStatsEachFrame = false;
+
         [Header("Debug")]
         float curTime;
         float prevTime;
@@ -265,16 +268,12 @@ namespace Assets.Scripts
             radiiBuf = new ComputeBuffer(N_omega, sizeof(float));
             radiiBuf.SetData(bucketRadii);
 
-            // 寻找能量最高的 bucket 作为尾迹生成的目标 bucket
-            // 简单策略：找半径适中的，或者直接找 converter 中能量最大的
-            // 这里暂时取中间偏大的一个 bucket，或者你可以遍历 spectrum 找峰值
-            // 假设 converter._radii 是按频率从低到高排列（半径从大到小）
-            // 我们选一个中等波长的 bucket，例如 N_omega / 2
-            if (N_omega > 0)
+            // Wake 的默认（fallback）桶：当动态选桶不可用时使用
+            if (bucketRadii != null && bucketRadii.Length > 0)
             {
-                wakeTargetBucketIdx = N_omega / 2; 
+                wakeTargetBucketIdx = Mathf.Clamp(N_omega / 2, 0, bucketRadii.Length - 1);
                 wakeTargetRadius = bucketRadii[wakeTargetBucketIdx];
-                Debug.Log($"[WaveParticleSystem] Wake Target Bucket: {wakeTargetBucketIdx}, Radius: {wakeTargetRadius:F2}m");
+                Debug.Log($"[WaveParticleSystem] Wake Fallback Bucket: {wakeTargetBucketIdx}, Radius: {wakeTargetRadius:F2}m");
             }
 
             oceanMaterial.SetFloat("_ParticleHeightScale", 1.0f);
@@ -1727,10 +1726,16 @@ namespace Assets.Scripts
         // 处理所有船只的尾迹生成
         void ProcessSolidWakes(float dt)
         {
-            if (solids == null || wakeTargetBucketIdx < 0) return;
+            if (solids == null) return;
+            if (bucketRadii == null || bucketRadii.Length == 0) return;
 
             int totalWakeParticles = 0;
             float maxFlux = 0f;
+
+            float sumAbsAmplitude = 0f;
+            float maxAbsAmplitude = 0f;
+
+            const float VOLUME_COEFF = 0.297f * Mathf.PI; // V = 0.297*pi*r^2*A
 
             foreach (var solid in solids)
             {
@@ -1753,6 +1758,35 @@ namespace Assets.Scripts
                     // 计算本次时间步长内的排水体积
                     float volume = flux * dt * wakeGenerationScale;
 
+                    // --- 由体积反推桶半径 ---
+                    // 先假设 r=A，则 V = 0.297*pi*r^3 => r0 = cbrt(|V|/(0.297*pi))
+                    float absV = Mathf.Abs(volume);
+                    if (absV < 1e-10f) continue;
+
+                    float r0 = Mathf.Pow(absV / VOLUME_COEFF, 1f / 3f);
+
+                    // 在桶半径中找最近的 r_bucket
+                    int bucketIdx = wakeTargetBucketIdx;
+                    float rBucket = wakeTargetRadius;
+
+                    float bestDiff = float.PositiveInfinity;
+                    for (int bi = 0; bi < bucketRadii.Length; bi++)
+                    {
+                        float diff = Mathf.Abs(bucketRadii[bi] - r0);
+                        if (diff < bestDiff)
+                        {
+                            bestDiff = diff;
+                            bucketIdx = bi;
+                            rBucket = bucketRadii[bi];
+                        }
+                    }
+
+                    if (bucketIdx < 0 || bucketIdx >= bucketRadii.Length) continue;
+                    if (rBucket <= 1e-6f) continue;
+
+                    // 用 r_bucket 重新反算振幅 A：A = V / (0.297*pi*r^2)
+                    float amplitude = volume / (VOLUME_COEFF * rBucket * rBucket);
+
                     // 粒子位置：面片中心 + 沿法线水平分量偏移 0.5 * 半径
                     // 这样可以把粒子推离船体表面一点，避免穿模或在船内部生成
                     Vector3 pos = data.position;
@@ -1761,18 +1795,12 @@ namespace Assets.Scripts
                     if (offsetDir == Vector3.zero) offsetDir = Vector3.up; // fallback
 
                     // 增加偏移距离，防止粒子生成在船体内部或太贴近表面
-                    Vector3 spawnPos = pos + offsetDir * (wakeTargetRadius * 1.5f);
+                    Vector3 spawnPos = pos + offsetDir * (rBucket * 1.5f);
 
-                    // 粒子速度：取船体在该点的速度的水平分量
-                    // 简单起见，可以直接用船体整体速度，或者更精确点用刚体点速度
-                    // 这里我们假设粒子生成后就随波逐流，初始速度设为 0 或者给一点沿法线的推力
-                    // WaveParticle 的 velocity 属性通常用于多普勒效应或平流，这里先给 0
-                    Vector2 velocity = Vector2.zero; 
+                    // 面片点速度（用于决定粒子传播方向/速度）
+                    Vector3 ptVel = Vector3.zero;
                     if (solid.rb != null)
-                    {
-                        Vector3 ptVel = solid.rb.GetPointVelocity(pos);
-                        velocity = new Vector2(ptVel.x, ptVel.z) * 0.2f; // 继承一点速度
-                    }
+                        ptVel = solid.rb.GetPointVelocity(pos);
 
                     // 振幅计算
                     // 假设波形是圆柱形或高斯形，体积 V ≈ Area * Amplitude
@@ -1784,45 +1812,68 @@ namespace Assets.Scripts
                     // 现在的逻辑是：每帧的通量都转化为了一个新的波粒子。
                     // 这相当于把连续的流体推挤离散化为一串粒子。
                     
-                    float r = wakeTargetRadius;
-                    float area = Mathf.PI * r * r;
-                    float amplitude = volume / area;
-
                     // 限制最大振幅，防止爆炸
                     amplitude = Mathf.Clamp(amplitude, -2f, 2f);
+
+                    float absAmp = Mathf.Abs(amplitude);
+                    sumAbsAmplitude += absAmp;
+                    if (absAmp > maxAbsAmplitude) maxAbsAmplitude = absAmp;
 
                     // 创建粒子
                     WaveParticle p = new WaveParticle();
                     p.position = new Unity.Mathematics.float2(spawnPos.x, spawnPos.z);
-                    
-                    // 传播方向：沿法线水平分量
-                    p.direction = new Unity.Mathematics.float2(offsetDir.x, offsetDir.z);
+
+                    // 传播方向：与船面片垂直（沿面片法线的水平投影）
+                    // 速度大小：面片点速度在法线方向的分量 |dot(v, n)|
+                    Vector3 nN = normal.sqrMagnitude > 1e-8f ? normal.normalized : Vector3.up;
+                    float vN = Vector3.Dot(ptVel, nN);
+                    float speed2 = Mathf.Abs(vN);
+
+                    Vector2 dir2 = new Vector2(nN.x, nN.z);
+                    if (dir2.sqrMagnitude > 1e-8f)
+                    {
+                        dir2.Normalize();
+                        // 用法线分量的符号决定方向（压水/抽水方向相反）
+                        dir2 *= Mathf.Sign(vN == 0f ? 1f : vN);
+                    }
+                    else
+                    {
+                        // 法线几乎竖直时，回退：用船体水平速度方向
+                        Vector2 velXZ = new Vector2(ptVel.x, ptVel.z);
+                        if (velXZ.sqrMagnitude > 1e-8f)
+                            dir2 = velXZ.normalized;
+                    }
+
+                    p.direction = new Unity.Mathematics.float2(dir2.x, dir2.y);
                     
                     // 高度（振幅）
                     p.height = amplitude;
                     
                     // 半径
-                    p.radius = r;
+                    p.radius = rBucket;
                     
                     // 物理参数计算
-                    // 我们在 Start 里记录了 wakeTargetBucketIdx，可以从 converter 获取准确值
-                    if (converter != null && converter._omegas != null && wakeTargetBucketIdx < converter._omegas.Length)
+                    // 从 converter 获取对应桶的 omega
+                    if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
                     {
-                        p.omega = converter._omegas[wakeTargetBucketIdx];
+                        p.omega = converter._omegas[bucketIdx];
                         // k = omega^2 / g
                         p.k = (p.omega * p.omega) / wavesSettings.g;
-                        // 群速度 Cg = 0.5 * C = 0.5 * (g / omega)
-                        p.speed = 0.5f * wavesSettings.g / p.omega;
+                        // speed：按需求改为“面片点速度在法线方向的分量”
+                        // 若速度过小，则回退到群速度，避免 0 速度粒子停滞
+                        float cg = 0.5f * wavesSettings.g / p.omega;
+                        p.speed = (speed2 > 1e-4f) ? speed2 : cg;
                     }
                     else
                     {
                         // Fallback
-                        p.k = 1.0f / r;
+                        p.k = 1.0f / rBucket;
                         p.omega = Mathf.Sqrt(9.81f * p.k);
-                        p.speed = 0.5f * 9.81f / p.omega;
+                        float cg = 0.5f * 9.81f / p.omega;
+                        p.speed = (speed2 > 1e-4f) ? speed2 : cg;
                     }
 
-                    p.bucketNum = wakeTargetBucketIdx;
+                    p.bucketNum = bucketIdx;
                     
                     // 将粒子加入到最近的 Region
                     // 简单起见，加入到 region 0，或者遍历所有 region 找包含该点的
@@ -1834,9 +1885,9 @@ namespace Assets.Scripts
                             // 找到对应的 bucket
                             // 我们之前选定了 wakeTargetBucketIdx
                             // 确保 bucket 已经初始化
-                            if (region.buckets != null && region.buckets.Length > wakeTargetBucketIdx)
+                            if (region.buckets != null && region.buckets.Length > bucketIdx)
                             {
-                                region.buckets[wakeTargetBucketIdx].Add(p);
+                                region.buckets[bucketIdx].Add(p);
                                 totalWakeParticles++;
                             }
                             break; // 只加到一个 region
@@ -1847,7 +1898,11 @@ namespace Assets.Scripts
 
             // if (fixedFrameCnt % 60 == 0)
             {
-                // Debug.Log($"[WaveParticleSystem] Wake Debug: MaxFlux={maxFlux:F4}, GeneratedParticles={totalWakeParticles}");
+                if (logWakeStatsEachFrame)
+                {
+                    float avgAbsAmplitude = (totalWakeParticles > 0) ? (sumAbsAmplitude / totalWakeParticles) : 0f;
+                    Debug.Log($"[WaveParticleSystem][Wake] frame={fixedFrameCnt} count={totalWakeParticles} maxAbsAmp={maxAbsAmplitude:F6} avgAbsAmp={avgAbsAmplitude:F6} maxAbsFlux={maxFlux:F6}");
+                }
             }
         }
 

@@ -323,7 +323,7 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
     if (areaSub > eps)
     {
         float3 v_obj_sub = GetVelocityAtPoint(centerSub);
-        float3 v_water   = float3(5,0,0);      // 之后可以用 WP 的水体速度
+        float3 v_water   = float3(10,0,0);      // 之后可以用 WP 的水体速度
         float3 v_rel     = v_obj_sub - v_water;
 
         // ---- 固体→液体：体积通量（源项）----
