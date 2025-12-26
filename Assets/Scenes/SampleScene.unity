@@ -1350,7 +1350,7 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.4
+      value: 0.6
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
@@ -1459,7 +1459,7 @@ Rigidbody:
   m_UseGravity: 1
   m_IsKinematic: 0
   m_Interpolate: 0
-  m_Constraints: 4
+  m_Constraints: 0
   m_CollisionDetection: 0
 --- !u!114 &1336822123
 MonoBehaviour:
@@ -1530,8 +1530,8 @@ MonoBehaviour:
   smoothedHorzFlux: 0
   targetDensity: 600
   useCalmSeaSampling: 1
-  calmSeaLevel: 0.6
-  showDebugGizmos: 0
+  calmSeaLevel: 0
+  showDebugGizmos: 1
   colorSubmerged: {r: 0, g: 1, b: 1, a: 0.3}
   colorSurface: {r: 1, g: 0, b: 0, a: 0.3}
 --- !u!1 &1375697273

@@ -1748,149 +1748,208 @@ namespace Assets.Scripts
                 for (int i = 0; i < solid.waveGenDataArray.Length; i++)
                 {
                     var data = solid.waveGenDataArray[i];
-                    float flux = data.flux; // m^3/s
+                    float fluxV = data.flux; // m^3/s (vertical)
+                    float fluxH = data.horzFlux; // m^3/s (horizontal)
 
-                    if (Mathf.Abs(flux) > maxFlux) maxFlux = Mathf.Abs(flux);
+                    if (Mathf.Abs(fluxV) > maxFlux) maxFlux = Mathf.Abs(fluxV);
+                    if (Mathf.Abs(fluxH) > maxFlux) maxFlux = Mathf.Abs(fluxH);
 
                     // 阈值过滤：忽略微小的通量
-                    if (Mathf.Abs(flux) < 1e-4f) continue;
+                    bool hasVert = Mathf.Abs(fluxV) >= 1e-4f;
+                    bool hasHorz = Mathf.Abs(fluxH) >= 1e-4f;
+                    if (!hasVert && !hasHorz) continue;
 
                     // 计算本次时间步长内的排水体积
-                    float volume = flux * dt * wakeGenerationScale;
-
-                    // --- 由体积反推桶半径 ---
-                    // 先假设 r=A，则 V = 0.297*pi*r^3 => r0 = cbrt(|V|/(0.297*pi))
-                    float absV = Mathf.Abs(volume);
-                    if (absV < 1e-10f) continue;
-
-                    float r0 = Mathf.Pow(absV / VOLUME_COEFF, 1f / 3f);
-
-                    // 在桶半径中找最近的 r_bucket
-                    int bucketIdx = wakeTargetBucketIdx;
-                    float rBucket = wakeTargetRadius;
-
-                    float bestDiff = float.PositiveInfinity;
-                    for (int bi = 0; bi < bucketRadii.Length; bi++)
-                    {
-                        float diff = Mathf.Abs(bucketRadii[bi] - r0);
-                        if (diff < bestDiff)
-                        {
-                            bestDiff = diff;
-                            bucketIdx = bi;
-                            rBucket = bucketRadii[bi];
-                        }
-                    }
-
-                    if (bucketIdx < 0 || bucketIdx >= bucketRadii.Length) continue;
-                    if (rBucket <= 1e-6f) continue;
-
-                    // 用 r_bucket 重新反算振幅 A：A = V / (0.297*pi*r^2)
-                    float amplitude = volume / (VOLUME_COEFF * rBucket * rBucket);
-
-                    // 粒子位置：面片中心 + 沿法线水平分量偏移 0.5 * 半径
-                    // 这样可以把粒子推离船体表面一点，避免穿模或在船内部生成
-                    Vector3 pos = data.position;
-                    Vector3 normal = data.normal;
-                    Vector3 offsetDir = new Vector3(normal.x, 0, normal.z).normalized;
-                    if (offsetDir == Vector3.zero) offsetDir = Vector3.up; // fallback
-
-                    // 增加偏移距离，防止粒子生成在船体内部或太贴近表面
-                    Vector3 spawnPos = pos + offsetDir * (rBucket * 1.5f);
+                    float volumeV = fluxV * dt * wakeGenerationScale;
+                    float volumeH = fluxH * dt * wakeGenerationScale;
 
                     // 面片点速度（用于决定粒子传播方向/速度）
+                    Vector3 pos = data.position;
+                    Vector3 normal = data.normal;
                     Vector3 ptVel = Vector3.zero;
                     if (solid.rb != null)
                         ptVel = solid.rb.GetPointVelocity(pos);
 
-                    // 振幅计算
-                    // 假设波形是圆柱形或高斯形，体积 V ≈ Area * Amplitude
-                    // Area ≈ π * r^2
-                    // Amplitude ≈ V / (π * r^2)
-                    // 注意：这里生成的粒子是“一次性”的脉冲，还是持续存在的？
-                    // WaveParticle 是持续存在的振荡子。
-                    // 如果我们每帧都生成，那么这些粒子应该迅速衰减，或者我们只在通量变化剧烈时生成。
-                    // 现在的逻辑是：每帧的通量都转化为了一个新的波粒子。
-                    // 这相当于把连续的流体推挤离散化为一串粒子。
-                    
-                    // 限制最大振幅，防止爆炸
-                    amplitude = Mathf.Clamp(amplitude, -2f, 2f);
+                    // --- 由体积反推桶半径 ---
+                    // 先假设 r=A，则 V = 0.297*pi*r^3 => r0 = cbrt(|V|/(0.297*pi))
+                    float absV = Mathf.Abs(volumeV);
+                    float absH = Mathf.Abs(volumeH);
+                    if (absV < 1e-10f && absH < 1e-10f) continue;
 
-                    float absAmp = Mathf.Abs(amplitude);
-                    sumAbsAmplitude += absAmp;
-                    if (absAmp > maxAbsAmplitude) maxAbsAmplitude = absAmp;
+                    // NOTE: 下面的“选桶+算振幅”会对竖直/水平各做一次。
 
-                    // 创建粒子
-                    WaveParticle p = new WaveParticle();
-                    p.position = new Unity.Mathematics.float2(spawnPos.x, spawnPos.z);
-
-                    // 传播方向：与船面片垂直（沿面片法线的水平投影）
-                    // 速度大小：面片点速度在法线方向的分量 |dot(v, n)|
-                    Vector3 nN = normal.sqrMagnitude > 1e-8f ? normal.normalized : Vector3.up;
-                    float vN = Vector3.Dot(ptVel, nN);
-                    float speed2 = Mathf.Abs(vN);
-
-                    Vector2 dir2 = new Vector2(nN.x, nN.z);
-                    if (dir2.sqrMagnitude > 1e-8f)
+                    // -------------------------------------------------
+                    // a) 竖直排水（上下压水/抽水）
+                    // -------------------------------------------------
+                    if (hasVert && absV >= 1e-10f)
                     {
-                        dir2.Normalize();
-                        // 用法线分量的符号决定方向（压水/抽水方向相反）
-                        dir2 *= Mathf.Sign(vN == 0f ? 1f : vN);
-                    }
-                    else
-                    {
-                        // 法线几乎竖直时，回退：用船体水平速度方向
-                        Vector2 velXZ = new Vector2(ptVel.x, ptVel.z);
-                        if (velXZ.sqrMagnitude > 1e-8f)
-                            dir2 = velXZ.normalized;
-                    }
+                        float r0 = Mathf.Pow(absV / VOLUME_COEFF, 1f / 3f);
 
-                    p.direction = new Unity.Mathematics.float2(dir2.x, dir2.y);
-                    
-                    // 高度（振幅）
-                    p.height = amplitude;
-                    
-                    // 半径
-                    p.radius = rBucket;
-                    
-                    // 物理参数计算
-                    // 从 converter 获取对应桶的 omega
-                    if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
-                    {
-                        p.omega = converter._omegas[bucketIdx];
-                        // k = omega^2 / g
-                        p.k = (p.omega * p.omega) / wavesSettings.g;
-                        // speed：按需求改为“面片点速度在法线方向的分量”
-                        // 若速度过小，则回退到群速度，避免 0 速度粒子停滞
-                        float cg = 0.5f * wavesSettings.g / p.omega;
-                        p.speed = (speed2 > 1e-4f) ? speed2 : cg;
-                    }
-                    else
-                    {
-                        // Fallback
-                        p.k = 1.0f / rBucket;
-                        p.omega = Mathf.Sqrt(9.81f * p.k);
-                        float cg = 0.5f * 9.81f / p.omega;
-                        p.speed = (speed2 > 1e-4f) ? speed2 : cg;
-                    }
+                        int bucketIdx = wakeTargetBucketIdx;
+                        float rBucket = wakeTargetRadius;
 
-                    p.bucketNum = bucketIdx;
-                    
-                    // 将粒子加入到最近的 Region
-                    // 简单起见，加入到 region 0，或者遍历所有 region 找包含该点的
-                    for (int rIdx = 0; rIdx < waveParticleRegions.Count; rIdx++)
-                    {
-                        var region = waveParticleRegions[rIdx];
-                        if (region.Contains(p.position, p.radius))
+                        float bestDiff = float.PositiveInfinity;
+                        for (int bi = 0; bi < bucketRadii.Length; bi++)
                         {
-                            // 找到对应的 bucket
-                            // 我们之前选定了 wakeTargetBucketIdx
-                            // 确保 bucket 已经初始化
-                            if (region.buckets != null && region.buckets.Length > bucketIdx)
+                            float diff = Mathf.Abs(bucketRadii[bi] - r0);
+                            if (diff < bestDiff)
                             {
-                                region.buckets[bucketIdx].Add(p);
-                                totalWakeParticles++;
+                                bestDiff = diff;
+                                bucketIdx = bi;
+                                rBucket = bucketRadii[bi];
                             }
-                            break; // 只加到一个 region
+                        }
+
+                        if (bucketIdx >= 0 && bucketIdx < bucketRadii.Length && rBucket > 1e-6f)
+                        {
+                            float amplitude = volumeV / (VOLUME_COEFF * rBucket * rBucket);
+                            amplitude = Mathf.Clamp(amplitude, -2f, 2f);
+
+                            float absAmp = Mathf.Abs(amplitude);
+                            sumAbsAmplitude += absAmp;
+                            if (absAmp > maxAbsAmplitude) maxAbsAmplitude = absAmp;
+
+                            Vector3 offsetDir = new Vector3(normal.x, 0, normal.z).normalized;
+                            if (offsetDir == Vector3.zero) offsetDir = Vector3.up;
+                            Vector3 spawnPos = pos + offsetDir * (rBucket * 1.5f);
+
+                            WaveParticle p = new WaveParticle();
+                            p.position = new Unity.Mathematics.float2(spawnPos.x, spawnPos.z);
+
+                            Vector3 nN = normal.sqrMagnitude > 1e-8f ? normal.normalized : Vector3.up;
+                            float vN = Vector3.Dot(ptVel, nN);
+                            float speed2 = Mathf.Abs(vN);
+
+                            Vector2 dir2 = new Vector2(nN.x, nN.z);
+                            if (dir2.sqrMagnitude > 1e-8f)
+                            {
+                                dir2.Normalize();
+                                dir2 *= Mathf.Sign(vN == 0f ? 1f : vN);
+                            }
+                            else
+                            {
+                                Vector2 velXZ = new Vector2(ptVel.x, ptVel.z);
+                                if (velXZ.sqrMagnitude > 1e-8f)
+                                    dir2 = velXZ.normalized;
+                            }
+
+                            p.direction = new Unity.Mathematics.float2(dir2.x, dir2.y);
+                            p.height = amplitude;
+                            p.radius = rBucket;
+
+                            if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
+                            {
+                                p.omega = converter._omegas[bucketIdx];
+                                p.k = (p.omega * p.omega) / wavesSettings.g;
+                                float cg = 0.5f * wavesSettings.g / p.omega;
+                                p.speed = (speed2 > 1e-4f) ? speed2 : cg;
+                            }
+                            else
+                            {
+                                p.k = 1.0f / rBucket;
+                                p.omega = Mathf.Sqrt(9.81f * p.k);
+                                float cg = 0.5f * 9.81f / p.omega;
+                                p.speed = (speed2 > 1e-4f) ? speed2 : cg;
+                            }
+
+                            p.bucketNum = bucketIdx;
+
+                            for (int rIdx = 0; rIdx < waveParticleRegions.Count; rIdx++)
+                            {
+                                var region = waveParticleRegions[rIdx];
+                                if (region.Contains(p.position, p.radius))
+                                {
+                                    if (region.buckets != null && region.buckets.Length > bucketIdx)
+                                    {
+                                        region.buckets[bucketIdx].Add(p);
+                                        totalWakeParticles++;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // -------------------------------------------------
+                    // b) 水平排水（下游尾迹）
+                    // -------------------------------------------------
+                    if (hasHorz && absH >= 1e-10f)
+                    {
+                        float r0 = Mathf.Pow(absH / VOLUME_COEFF, 1f / 3f);
+
+                        int bucketIdx = wakeTargetBucketIdx;
+                        float rBucket = wakeTargetRadius;
+
+                        float bestDiff = float.PositiveInfinity;
+                        for (int bi = 0; bi < bucketRadii.Length; bi++)
+                        {
+                            float diff = Mathf.Abs(bucketRadii[bi] - r0);
+                            if (diff < bestDiff)
+                            {
+                                bestDiff = diff;
+                                bucketIdx = bi;
+                                rBucket = bucketRadii[bi];
+                            }
+                        }
+
+                        if (bucketIdx >= 0 && bucketIdx < bucketRadii.Length && rBucket > 1e-6f)
+                        {
+                            float amplitude = volumeH / (VOLUME_COEFF * rBucket * rBucket);
+                            amplitude = Mathf.Clamp(amplitude, -2f, 2f);
+
+                            float absAmp = Mathf.Abs(amplitude);
+                            sumAbsAmplitude += absAmp;
+                            if (absAmp > maxAbsAmplitude) maxAbsAmplitude = absAmp;
+
+                            Vector2 velXZ = new Vector2(ptVel.x, ptVel.z);
+                            Vector2 downstream = (velXZ.sqrMagnitude > 1e-8f) ? (-velXZ.normalized) : Vector2.zero;
+
+                            Vector3 spawnPos = pos;
+                            if (downstream != Vector2.zero)
+                                spawnPos += new Vector3(downstream.x, 0f, downstream.y) * (rBucket * 2.0f);
+
+                            WaveParticle p = new WaveParticle();
+                            p.position = new Unity.Mathematics.float2(spawnPos.x, spawnPos.z);
+
+                            if (downstream != Vector2.zero)
+                                p.direction = new Unity.Mathematics.float2(downstream.x, downstream.y);
+                            else
+                                p.direction = new Unity.Mathematics.float2(0f, 1f);
+
+                            p.height = amplitude;
+                            p.radius = rBucket;
+
+                            float speedH = velXZ.magnitude;
+                            if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
+                            {
+                                p.omega = converter._omegas[bucketIdx];
+                                p.k = (p.omega * p.omega) / wavesSettings.g;
+                                float cg = 0.5f * wavesSettings.g / p.omega;
+                                p.speed = (speedH > 1e-4f) ? speedH : cg;
+                            }
+                            else
+                            {
+                                p.k = 1.0f / rBucket;
+                                p.omega = Mathf.Sqrt(9.81f * p.k);
+                                float cg = 0.5f * 9.81f / p.omega;
+                                p.speed = (speedH > 1e-4f) ? speedH : cg;
+                            }
+
+                            p.bucketNum = bucketIdx;
+
+                            for (int rIdx = 0; rIdx < waveParticleRegions.Count; rIdx++)
+                            {
+                                var region = waveParticleRegions[rIdx];
+                                if (region.Contains(p.position, p.radius))
+                                {
+                                    if (region.buckets != null && region.buckets.Length > bucketIdx)
+                                    {
+                                        region.buckets[bucketIdx].Add(p);
+                                        totalWakeParticles++;
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     }
                 }

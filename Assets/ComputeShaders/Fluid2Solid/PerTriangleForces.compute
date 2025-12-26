@@ -24,6 +24,7 @@ struct WaveGenData
     float3 position; // 水下中心点 (WS)
     float3 normal;   // 面法线 (WS)
     float  flux;     // 垂直通量 (m^3/s)
+    float  horzFlux; // 水平通量 (m^3/s)
 };
 RWStructuredBuffer<WaveGenData> _OutWaveGenData;
 
@@ -259,6 +260,13 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
 
         _OutVertFlux[id]   = 0;
         _OutHorzFlux[id]   = 0;
+
+        WaveGenData wd0;
+        wd0.position = 0;
+        wd0.normal   = 0;
+        wd0.flux     = 0;
+        wd0.horzFlux = 0;
+        _OutWaveGenData[id] = wd0;
         return;
     }
     float3 centerFull = (w0 + w1 + w2) / 3.0;
@@ -404,5 +412,6 @@ void CS_TriangleForces(uint id : SV_DispatchThreadID)
     wd.position = centerSub; // 如果完全在水上，这里是0
     wd.normal   = normalize(n_full);
     wd.flux     = vertFlux;
+    wd.horzFlux = horzFlux;
     _OutWaveGenData[id] = wd;
 }

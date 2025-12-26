@@ -163,11 +163,13 @@ public class SolidHydrodynamics : MonoBehaviour
     }
 
     // 对应 Compute Shader 中的 WaveGenData
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct WaveGenData
     {
         public Vector3 position; // 水下中心点 (WS)
         public Vector3 normal;   // 面法线 (WS)
         public float flux;       // 垂直通量 (m^3/s)
+        public float horzFlux;   // 水平通量 (m^3/s)
     }
 
     // 存储回读的波浪生成数据
@@ -237,7 +239,7 @@ public class SolidHydrodynamics : MonoBehaviour
         horzFluxBuffer   = new ComputeBuffer((int)triCount, sizeof(float));
 
         // 新增：WaveGenData buffer
-        waveGenDataBuffer = new ComputeBuffer((int)triCount, sizeof(float) * 7); // float3 pos, float3 normal, float flux
+        waveGenDataBuffer = new ComputeBuffer((int)triCount, sizeof(float) * 8); // float3 pos, float3 normal, float flux, float horzFlux
         waveGenDataArray = new WaveGenData[triCount];
 
         // --- reduction outputs ---
