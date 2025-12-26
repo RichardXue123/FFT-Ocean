@@ -46,6 +46,11 @@ float2 _RegionMin;
 float  _RegionSize;
 int    _Resolution;
 
+// Debug / stabilization: sample a calm, flat sea instead of the current height map.
+// When enabled, SampleHeight returns _CalmSeaLevel (world-space Y).
+int   _UseCalmSea;
+float _CalmSeaLevel;
+
 // textures
 Texture2D<float> _HeightMap;
 
@@ -62,6 +67,11 @@ float3 _WindVelocity;
 // ---------------------------------------------
 float SampleHeight(float2 worldXZ)
 {
+    if (_UseCalmSea != 0)
+    {
+        return _CalmSeaLevel;
+    }
+
     float2 uv = (worldXZ - _RegionMin) / _RegionSize;
     uv = saturate(uv);
 

@@ -72,6 +72,13 @@ public class SolidHydrodynamics : MonoBehaviour
     [Tooltip("Target density (kg/m3) for auto-mass calculation. Water is 1000. Typical boat overall density is 200-600.")]
     public float targetDensity = 400f;
 
+    [Header("Sampling (Debug)")]
+    [Tooltip("If enabled, sample a calm, flat sea (constant height) to avoid wave-particle feedback causing instability.")]
+    public bool useCalmSeaSampling = false;
+
+    [Tooltip("World-space sea level (Y) used when Calm Sea Sampling is enabled.")]
+    public float calmSeaLevel = 0f;
+
     [ContextMenu("Auto Calculate Mass")]
     public void AutoCalculateMass()
     {
@@ -312,6 +319,12 @@ public class SolidHydrodynamics : MonoBehaviour
     {
         if (triCount == 0) return;
 
+        if (useCalmSeaSampling)
+        {
+            // 平静无风海面：切断“波粒子→海面→再采样→再生成”的正反馈链路
+            windVelocity = Vector3.zero;
+        }
+
         int kernel = perTriangleCS.FindKernel("CS_TriangleForces");
 
         // ------------------------------
@@ -335,6 +348,10 @@ public class SolidHydrodynamics : MonoBehaviour
             rb.worldCenterOfMass.z);
 
         perTriangleCS.SetVector("_WindVelocity", windVelocity);
+
+        // Calm-sea sampling (in PerTriangleForces.compute)
+        perTriangleCS.SetInt("_UseCalmSea", useCalmSeaSampling ? 1 : 0);
+        perTriangleCS.SetFloat("_CalmSeaLevel", calmSeaLevel);
 
         perTriangleCS.SetInt("_Resolution", resolution);
         perTriangleCS.SetFloat("_RegionSize", regionSize);

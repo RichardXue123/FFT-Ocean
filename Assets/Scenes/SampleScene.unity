@@ -1350,7 +1350,7 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.5
+      value: 0.4
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: fd5eb171f365dc347b5a7cce605b8b0d,
         type: 3}
@@ -1529,6 +1529,8 @@ MonoBehaviour:
   smoothedVertFlux: 0
   smoothedHorzFlux: 0
   targetDensity: 600
+  useCalmSeaSampling: 1
+  calmSeaLevel: 0.6
   showDebugGizmos: 0
   colorSubmerged: {r: 0, g: 1, b: 1, a: 0.3}
   colorSurface: {r: 1, g: 0, b: 0, a: 0.3}
