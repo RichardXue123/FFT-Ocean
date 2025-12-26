@@ -17,12 +17,32 @@ namespace Assets.Scripts
         public float planeSize;
         public float oceanSize;
 
+        // 振幅指数衰减半衰期（秒）。<=0 时不做指数淡出。
+        public float amplitudeHalfLife;
+
         public float2 regionCenter;  // 用于Contains判断
         public float2 regionHalf;    // = region.size * 0.5f
 
         public void Execute(int index)
         {
             var p = particles[index];
+
+            // 寿命剔除：remainingLife<=0 代表无限寿命
+            if (p.remainingLife > 0f)
+            {
+                p.remainingLife -= deltaTime;
+                if (p.remainingLife <= 0f)
+                    return;
+
+                // 指数淡出（按半衰期）
+                if (p.initialLife > 1e-6f && amplitudeHalfLife > 1e-6f)
+                {
+                    float age = p.initialLife - p.remainingLife;
+                    float factor = math.exp2(-age / amplitudeHalfLife);
+                    p.height = p.initialHeight * factor;
+                }
+            }
+
             float maxMove = p.speed * deltaTime + p.radius;  // 没有 speed 就用一个保守上界
             float2 d0 = math.abs(p.position - regionCenter) - regionHalf;
             d0 = math.max(d0, 0);              // 只要超出的一半
@@ -50,9 +70,31 @@ namespace Assets.Scripts
         public float2 regionCenter;
         public float2 regionHalf;
 
+        // 振幅指数衰减半衰期（秒）。<=0 时不做指数淡出。
+        public float amplitudeHalfLife;
+
         public void Execute(int i)
         {
             var p = src[i];
+
+            // 寿命剔除：remainingLife<=0 代表无限寿命
+            if (p.remainingLife > 0f)
+            {
+                p.remainingLife -= deltaTime;
+                if (p.remainingLife <= 0f)
+                {
+                    alive[i] = 0;
+                    return;
+                }
+
+                // 指数淡出（按半衰期）
+                if (p.initialLife > 1e-6f && amplitudeHalfLife > 1e-6f)
+                {
+                    float age = p.initialLife - p.remainingLife;
+                    float factor = math.exp2(-age / amplitudeHalfLife);
+                    p.height = p.initialHeight * factor;
+                }
+            }
 
             // 早期粗剔除：如果离区域包围盒很远，直接淘汰
             float maxMove = p.speed * deltaTime + p.radius;

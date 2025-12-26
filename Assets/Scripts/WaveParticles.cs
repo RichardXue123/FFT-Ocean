@@ -22,6 +22,14 @@ namespace Assets.Scripts
         public float k;      // 波数k
         public float omega;// 角频率ω=√(gk)
 
+        // 用于寿命淡出：线性衰减 height = initialHeight * (remainingLife / initialLife)
+        // initialLife<=0 表示无限寿命/不做淡出
+        public float initialHeight;
+        public float initialLife;
+
+        // 剩余寿命（秒）。<=0 表示无限寿命（用于谱初始化粒子）。
+        public float remainingLife;
+
         public int bucketNum; //所分到bucket的num
 
         public WaveParticle GetNegative(float planSize,  float oceanSize)
@@ -42,6 +50,9 @@ namespace Assets.Scripts
                 radius = this.radius,
                 k = this.k,
                 omega = this.omega,
+                initialHeight = -this.initialHeight,
+                initialLife = this.initialLife,
+                remainingLife = this.remainingLife,
                 bucketNum = this.bucketNum
             };
             return ret;

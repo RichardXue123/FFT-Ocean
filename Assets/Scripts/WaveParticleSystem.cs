@@ -83,6 +83,9 @@ namespace Assets.Scripts
         [Header("Wake Generation")]
         [SerializeField] public float wakeGenerationScale = 1.0f; // 调节生成波浪的强度
         [SerializeField] public float wakeParticleLife = 5.0f;    // 尾迹粒子寿命
+        [SerializeField] public float wakeMinParticleSpeed = 3f; // 尾迹粒子最小速度，避免慢粒子堆积
+        [SerializeField] public float wakeAmplitudeHalfLife = 0.75f; // 尾迹振幅半衰期(秒)：越小衰减越快
+        [SerializeField] public float wakeMinShipHorizontalSpeed = 0.5f; // 船水平速度低于该值时不生成尾迹，避免静止抖动夸张/堆积
         private int wakeTargetBucketIdx = -1;                     // 尾迹粒子放入哪个 bucket
         private float wakeTargetRadius = 1.0f;                    // 尾迹粒子半径
 
@@ -640,7 +643,8 @@ namespace Assets.Scripts
                     deltaTime = dt,
                     planeScale = planeScale,
                     regionCenter = region.center,
-                    regionHalf = region.size * 0.5f
+                    regionHalf = region.size * 0.5f,
+                    amplitudeHalfLife = wakeAmplitudeHalfLife
                 }.Schedule(len, 128);
 
                 // 单通道（或粗粒度并行）压缩：顺序写入 scratch[b]
@@ -1574,6 +1578,9 @@ namespace Assets.Scripts
                             radius    = rY,
                             omega     = omegaY,
                             k         = kY,
+                            initialHeight = a_i,
+                            initialLife = wakeParticleLife,
+                            remainingLife = wakeParticleLife,
                             bucketNum = bucketY
                         };
                         waveParticleRegions[regionIdx].buckets[bucketY].Add(p);
@@ -1661,6 +1668,9 @@ namespace Assets.Scripts
                             radius    = rH,
                             omega     = omegaH,
                             k         = kH,
+                            initialHeight = a_i,
+                            initialLife = wakeParticleLife,
+                            remainingLife = wakeParticleLife,
                             bucketNum = bucketH
                         };
                         waveParticleRegions[regionIdx].buckets[bucketH].Add(p);
@@ -1740,6 +1750,16 @@ namespace Assets.Scripts
             foreach (var solid in solids)
             {
                 if (solid == null || solid.waveGenDataArray == null) continue;
+
+                // 船的水平速度门限：静止/低速时不生成尾迹（避免细小扰动持续注入能量造成堆积）
+                float shipSpeedH = 0f;
+                if (solid.rb != null)
+                {
+                    Vector3 v = solid.rb.velocity;
+                    shipSpeedH = new Vector2(v.x, v.z).magnitude;
+                }
+                if (shipSpeedH < wakeMinShipHorizontalSpeed)
+                    continue;
 
                 // 遍历回读回来的波浪生成数据
                 // 注意：这里是遍历所有三角形，如果面片数很多，可能会有性能压力
@@ -1833,9 +1853,15 @@ namespace Assets.Scripts
                                     dir2 = velXZ.normalized;
                             }
 
+                            if (dir2.sqrMagnitude < 1e-8f)
+                                dir2 = Vector2.up;
+
                             p.direction = new Unity.Mathematics.float2(dir2.x, dir2.y);
                             p.height = amplitude;
                             p.radius = rBucket;
+                            p.initialHeight = amplitude;
+                            p.initialLife = wakeParticleLife;
+                            p.remainingLife = wakeParticleLife;
 
                             if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
                             {
@@ -1851,6 +1877,8 @@ namespace Assets.Scripts
                                 float cg = 0.5f * 9.81f / p.omega;
                                 p.speed = (speed2 > 1e-4f) ? speed2 : cg;
                             }
+
+                            p.speed = Mathf.Max(p.speed, wakeMinParticleSpeed);
 
                             p.bucketNum = bucketIdx;
 
@@ -1918,6 +1946,9 @@ namespace Assets.Scripts
 
                             p.height = amplitude;
                             p.radius = rBucket;
+                            p.initialHeight = amplitude;
+                            p.initialLife = wakeParticleLife;
+                            p.remainingLife = wakeParticleLife;
 
                             float speedH = velXZ.magnitude;
                             if (converter != null && converter._omegas != null && bucketIdx < converter._omegas.Length)
@@ -1934,6 +1965,8 @@ namespace Assets.Scripts
                                 float cg = 0.5f * 9.81f / p.omega;
                                 p.speed = (speedH > 1e-4f) ? speedH : cg;
                             }
+
+                            p.speed = Mathf.Max(p.speed, wakeMinParticleSpeed);
 
                             p.bucketNum = bucketIdx;
 
