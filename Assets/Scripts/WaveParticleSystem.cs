@@ -85,7 +85,7 @@ namespace Assets.Scripts
         [SerializeField] public float wakeParticleLife = 5.0f;    // 尾迹粒子寿命
         [SerializeField] public float wakeMinParticleSpeed = 3f; // 尾迹粒子最小速度，避免慢粒子堆积
         [SerializeField] public float wakeAmplitudeHalfLife = 0.75f; // 尾迹振幅半衰期(秒)：越小衰减越快
-        [SerializeField] public float wakeMinShipHorizontalSpeed = 0.5f; // 船水平速度低于该值时不生成尾迹，避免静止抖动夸张/堆积
+        [SerializeField] public float wakeMinShipHorizontalSpeed = 0.1f; // 船水平速度低于该值时不生成尾迹，避免静止抖动夸张/堆积
         private int wakeTargetBucketIdx = -1;                     // 尾迹粒子放入哪个 bucket
         private float wakeTargetRadius = 1.0f;                    // 尾迹粒子半径
 

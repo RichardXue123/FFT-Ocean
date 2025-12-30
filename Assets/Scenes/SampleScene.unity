@@ -245,6 +245,9 @@ MonoBehaviour:
   oceanMaterial: {fileID: 2100000, guid: 22156cefd2b9a5342867323a00e9de30, type: 2}
   wakeGenerationScale: 1
   wakeParticleLife: 10
+  wakeMinParticleSpeed: 1
+  wakeAmplitudeHalfLife: 0.75
+  wakeMinShipHorizontalSpeed: 0.5
   logWakeStatsEachFrame: 1
 --- !u!1 &232618948
 GameObject:
@@ -1695,6 +1698,9 @@ MonoBehaviour:
   oceanMaterial: {fileID: 2100000, guid: 79f16f7e2e961cc46828737b584510ee, type: 2}
   wakeGenerationScale: 1
   wakeParticleLife: 5
+  wakeMinParticleSpeed: 1
+  wakeAmplitudeHalfLife: 0.75
+  wakeMinShipHorizontalSpeed: 0.5
   logWakeStatsEachFrame: 0
 --- !u!4 &1848734007
 Transform:
