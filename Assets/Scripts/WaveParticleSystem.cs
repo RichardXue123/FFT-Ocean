@@ -86,6 +86,7 @@ namespace Assets.Scripts
         [SerializeField] public float wakeMinParticleSpeed = 3f; // 尾迹粒子最小速度，避免慢粒子堆积
         [SerializeField] public float wakeAmplitudeHalfLife = 0.75f; // 尾迹振幅半衰期(秒)：越小衰减越快
         [SerializeField] public float wakeMinShipHorizontalSpeed = 0.1f; // 船水平速度低于该值时不生成尾迹，避免静止抖动夸张/堆积
+        [SerializeField] public float wakeFullShipHorizontalSpeed = 2.0f; // 船速达到该值时尾迹强度=100%(低于此值会按速度渐入缩放)
         private int wakeTargetBucketIdx = -1;                     // 尾迹粒子放入哪个 bucket
         private float wakeTargetRadius = 1.0f;                    // 尾迹粒子半径
 
@@ -1761,6 +1762,12 @@ namespace Assets.Scripts
                 if (shipSpeedH < wakeMinShipHorizontalSpeed)
                     continue;
 
+                // 低速渐入：避免“刚起步/低速”时每帧持续注入导致近船区域叠加过强。
+                // speedScale=0 在 minSpeed；speedScale=1 在 fullSpeed；中间平滑过渡。
+                float fullSpeed = Mathf.Max(wakeFullShipHorizontalSpeed, wakeMinShipHorizontalSpeed + 1e-3f);
+                float rampT = Mathf.InverseLerp(wakeMinShipHorizontalSpeed, fullSpeed, shipSpeedH);
+                float speedScale = Mathf.SmoothStep(0f, 1f, rampT);
+
                 // 遍历回读回来的波浪生成数据
                 // 注意：这里是遍历所有三角形，如果面片数很多，可能会有性能压力
                 // 建议在 Compute Shader 中做一次 Reduce 或者 AppendBuffer 筛选
@@ -1780,8 +1787,8 @@ namespace Assets.Scripts
                     if (!hasVert && !hasHorz) continue;
 
                     // 计算本次时间步长内的排水体积
-                    float volumeV = fluxV * dt * wakeGenerationScale;
-                    float volumeH = fluxH * dt * wakeGenerationScale;
+                    float volumeV = fluxV * dt * wakeGenerationScale * speedScale;
+                    float volumeH = fluxH * dt * wakeGenerationScale * speedScale;
 
                     // 面片点速度（用于决定粒子传播方向/速度）
                     Vector3 pos = data.position;

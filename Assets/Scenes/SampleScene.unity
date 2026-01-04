@@ -248,6 +248,7 @@ MonoBehaviour:
   wakeMinParticleSpeed: 1
   wakeAmplitudeHalfLife: 0.75
   wakeMinShipHorizontalSpeed: 0.5
+  wakeFullShipHorizontalSpeed: 2
   logWakeStatsEachFrame: 1
 --- !u!1 &232618948
 GameObject:
@@ -1112,6 +1113,7 @@ GameObject:
   - component: {fileID: 963194226}
   - component: {fileID: 963194229}
   - component: {fileID: 963194230}
+  - component: {fileID: 963194231}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1200,7 +1202,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 20840d83399c2a544ad382839e61e3a0, type: 3}
   m_Name: 
@@ -1257,6 +1259,26 @@ MonoBehaviour:
   jpgQuality: 100
   captureCount: 5
   captureInterval: 0.2
+--- !u!114 &963194231
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 963194225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 679d3b274bec8a74baac95f0240b86b9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  isActive: 1
+  target: {fileID: 1336822135}
+  offset: {x: 0, y: 10, z: -15}
+  positionSmoothTime: 0.5
+  useTargetYawOnly: 1
+  lookAtTarget: 1
+  lookAtOffset: {x: 0, y: 1, z: 0}
+  rotationLerpSpeed: 12
 --- !u!1 &1133885655
 GameObject:
   m_ObjectHideFlags: 0
@@ -1655,7 +1677,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1336822120}
   serializedVersion: 4
-  m_Mass: 7134.221
+  m_Mass: 4756.1475
   m_Drag: 0
   m_AngularDrag: 0.05
   m_CenterOfMass: {x: 0.16, y: -0.4, z: 0.41}
@@ -1686,7 +1708,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 616a7803c32862640b746857d9ad6df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  maxSpeed: 8
+  maxSpeed: 5
   maxReverseSpeed: 5
   accel: 4
   brake: 5
@@ -1741,12 +1763,18 @@ MonoBehaviour:
   totalVolume: 0
   smoothedVertFlux: 0
   smoothedHorzFlux: 0
-  targetDensity: 600
+  targetDensity: 400
   useCalmSeaSampling: 1
   calmSeaLevel: 0
   showDebugGizmos: 0
   colorSubmerged: {r: 0, g: 1, b: 1, a: 0.3}
   colorSurface: {r: 1, g: 0, b: 0, a: 0.3}
+--- !u!4 &1336822135 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: fd5eb171f365dc347b5a7cce605b8b0d,
+    type: 3}
+  m_PrefabInstance: {fileID: 1336822119}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1375697273
 GameObject:
   m_ObjectHideFlags: 0
@@ -1911,6 +1939,7 @@ MonoBehaviour:
   wakeMinParticleSpeed: 1
   wakeAmplitudeHalfLife: 0.75
   wakeMinShipHorizontalSpeed: 0.5
+  wakeFullShipHorizontalSpeed: 2
   logWakeStatsEachFrame: 0
 --- !u!4 &1848734007
 Transform:
