@@ -316,7 +316,7 @@ namespace Assets.Scripts
 
             UpdateRegionCentersFromSolids(Time.deltaTime);
 
-            // ---- 新增：处理固体尾迹生成 ----
+            // ---- 固体->流体 ----
             ProcessSolidWakes(dt);
 
             oceanMaterial.SetInt("_RegionCount", waveParticleRegions.Count);
